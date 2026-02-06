@@ -1,0 +1,116 @@
+// WhatsApp Personal CRM - Prisma Schema
+// See docs/implementation-plan.md for full context
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // DATABASE_URL is set in prisma.config.ts (Prisma 7)
+}
+
+model User {
+  id              String            @id @default(cuid())
+  email           String            @unique
+  passwordHash    String
+  name            String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  whatsAppSession WhatsAppSession?
+  contacts        Contact[]
+  messages        Message[]
+
+  @@map("users")
+}
+
+model WhatsAppSession {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  phoneNumber   String?
+  isConnected   Boolean   @default(false)
+  lastConnected DateTime?
+  qrCode        String?   // Temporary storage for QR during pairing
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("whatsapp_sessions")
+}
+
+model Contact {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  whatsappId      String    // Format: 1234567890@s.whatsapp.net
+  name            String?   // From WhatsApp profile
+  pushName        String?   // Display name
+  phoneNumber     String?
+  profilePicUrl   String?
+
+  isGroup         Boolean   @default(false)
+
+  // CRM fields
+  lastInteraction DateTime?
+  notes           String?
+  tags           String[]  // Array of tags
+
+  messages        Message[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, whatsappId])
+  @@index([userId, lastInteraction])
+  @@map("contacts")
+}
+
+model Message {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  contactId   String
+  contact     Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  whatsappId  String      @unique // Message ID from WhatsApp
+
+  fromMe      Boolean     // True if sent by user, false if received
+  body        String?     // Text content
+  timestamp   DateTime
+
+  // Message type
+  type        MessageType @default(TEXT)
+
+  // Media
+  hasMedia    Boolean   @default(false)
+  mediaUrl    String?   // Local path or S3 URL
+  mediaMimeType String?
+  mediaSize   Int?
+
+  // Metadata
+  isRead      Boolean   @default(false)
+  isDeleted   Boolean   @default(false)
+
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, contactId, timestamp])
+  @@index([userId, timestamp])
+  @@map("messages")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  STICKER
+  LOCATION
+  CONTACT
+  OTHER
+}

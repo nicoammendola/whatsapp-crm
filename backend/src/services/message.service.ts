@@ -184,34 +184,70 @@ export class MessageService {
     });
   }
 
-  async getConversations(userId: string) {
-    const contacts = await prisma.contact.findMany({
-      where: { userId },
-      orderBy: { lastInteraction: 'desc' },
-    });
+  async getConversations(
+    userId: string,
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<{ conversations: Array<{ contact: any; lastMessage: any; unreadCount: number }>; hasMore: boolean }> {
+    // Single query: contact IDs ordered by latest message timestamp (most recent first)
+    const ordered = await prisma.$queryRaw<
+      Array<{ contactId: string; lastTs: Date; unreadCount: bigint }>
+    >`
+      SELECT m."contactId",
+             MAX(m."timestamp") as "lastTs",
+             COUNT(*) FILTER (WHERE m."isRead" = false AND m."fromMe" = false)::bigint as "unreadCount"
+      FROM messages m
+      WHERE m."userId" = ${userId}
+      GROUP BY m."contactId"
+      ORDER BY "lastTs" DESC NULLS LAST
+      LIMIT ${limit + 1}
+      OFFSET ${offset}
+    `;
 
+    const hasMore = ordered.length > limit;
+    const page = hasMore ? ordered.slice(0, limit) : ordered;
+    if (page.length === 0) return { conversations: [], hasMore: false };
+
+    const contactIds = page.map((r) => r.contactId);
+    const [contacts, lastMessages] = await Promise.all([
+      prisma.contact.findMany({ where: { id: { in: contactIds }, userId } }),
+      Promise.all(
+        contactIds.map((cid) =>
+          prisma.message.findFirst({
+            where: { userId, contactId: cid },
+            orderBy: { timestamp: 'desc' },
+          })
+        )
+      ),
+    ]);
+
+    const contactMap = new Map(contacts.map((c) => [c.id, c]));
     const conversations = [];
-
-    for (const contact of contacts) {
-      const lastMessage = await prisma.message.findFirst({
-        where: { userId, contactId: contact.id },
-        orderBy: { timestamp: 'desc' },
-      });
-
-      if (!lastMessage) continue;
-
-      const unreadCount = await prisma.message.count({
-        where: { userId, contactId: contact.id, isRead: false, fromMe: false },
-      });
-
+    for (let i = 0; i < page.length; i++) {
+      const row = page[i];
+      const contact = contactMap.get(row.contactId);
+      const lastMessage = lastMessages[i];
+      if (!contact || !lastMessage) continue;
       conversations.push({
         contact,
         lastMessage,
-        unreadCount,
+        unreadCount: Number(row.unreadCount),
       });
     }
 
-    return conversations;
+    return { conversations, hasMore };
+  }
+
+  async markAsRead(userId: string, contactId: string): Promise<void> {
+    await prisma.message.updateMany({
+      where: {
+        userId,
+        contactId,
+        isRead: false,
+        fromMe: false,
+      },
+      data: { isRead: true },
+    });
   }
 
   async getAllMessages(

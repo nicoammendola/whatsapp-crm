@@ -2,13 +2,48 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { messageService } from '../services/message.service';
 import { contactService } from '../services/contact.service';
+import { baileysService } from '../services/baileys.service';
 import { parseLimit, parseOffset } from '../utils/helpers';
+
+export async function markAsRead(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const { contactId } = req.body;
+    if (!contactId) {
+      res.status(400).json({ error: 'Contact ID required' });
+      return;
+    }
+    await messageService.markAsRead(userId, contactId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Mark read error:', error);
+    res.status(500).json({ error: 'Failed to mark messages as read' });
+  }
+}
+
+export async function sendMessage(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const { contactId, body, mediaUrl, mediaType } = req.body;
+    if (!contactId || (!body && !mediaUrl)) {
+      res.status(400).json({ error: 'Contact ID and content required' });
+      return;
+    }
+    await baileysService.sendMessage(userId, contactId, { body, mediaUrl, mediaType });
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Send message error:', error);
+    res.status(500).json({ error: error.message || 'Failed to send message' });
+  }
+}
 
 export async function getConversations(req: AuthRequest, res: Response): Promise<void> {
   try {
     const userId = req.userId!;
-    const conversations = await messageService.getConversations(userId);
-    res.json({ conversations });
+    const limit = parseLimit(req.query.limit, 20);
+    const offset = parseOffset(req.query.offset, 0);
+    const { conversations, hasMore } = await messageService.getConversations(userId, limit, offset);
+    res.json({ conversations, hasMore });
   } catch (error) {
     console.error('Get conversations error:', error);
     res.status(500).json({ error: 'Failed to fetch conversations' });

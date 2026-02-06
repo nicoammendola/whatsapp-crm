@@ -177,6 +177,21 @@ export class BaileysService {
     });
   }
 
+  async restoreSessions(): Promise<void> {
+    const sessions = await prisma.whatsAppSession.findMany({
+      where: { isConnected: true },
+    });
+
+    console.log(`${LOG_PREFIX} Restoring ${sessions.length} sessions...`);
+
+    for (const session of sessions) {
+      // Start initialization in background
+      this.initializeWhatsApp(session.userId).catch((err) => {
+        console.error(`${LOG_PREFIX} Failed to restore session for ${session.userId}:`, err);
+      });
+    }
+  }
+
   async initializeWhatsApp(userId: string): Promise<{ qr: string | null }> {
     if (activeConnections.has(userId)) {
       log(userId, 'already connected; skipping init');
@@ -470,6 +485,52 @@ export class BaileysService {
       await prisma.whatsAppSession.deleteMany({ where: { userId } });
     } catch (err) {
       console.error(`${LOG_PREFIX} Failed to delete session row:`, err);
+    }
+  }
+  async sendMessage(
+    userId: string,
+    contactId: string,
+    content: { body?: string; mediaUrl?: string; mediaType?: 'image' | 'video' | 'audio' | 'document' }
+  ): Promise<void> {
+    const sock = activeConnections.get(userId);
+    if (!sock) {
+      throw new Error('WhatsApp not connected');
+    }
+
+    const contact = await contactService.getContactById(userId, contactId);
+    if (!contact || !contact.whatsappId) {
+      throw new Error('Contact not found or invalid');
+    }
+
+    const jid = contact.whatsappId;
+    let sentMsg;
+
+    if (content.mediaUrl && content.mediaType) {
+      const media = { url: content.mediaUrl };
+      let messageContent: any = {};
+
+      switch (content.mediaType) {
+        case 'image':
+          messageContent = { image: media, caption: content.body };
+          break;
+        case 'video':
+          messageContent = { video: media, caption: content.body };
+          break;
+        case 'audio':
+          messageContent = { audio: media, mimetype: 'audio/mp4' };
+          break;
+        case 'document':
+          messageContent = { document: media, mimetype: 'application/pdf', fileName: 'file.pdf' }; // TODO: Handle filename/mime
+          break;
+      }
+
+      sentMsg = await sock.sendMessage(jid, messageContent);
+    } else if (content.body) {
+      sentMsg = await sock.sendMessage(jid, { text: content.body });
+    }
+
+    if (sentMsg) {
+      await messageService.handleIncomingMessage(userId, sentMsg, sock);
     }
   }
 }

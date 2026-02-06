@@ -1,37 +1,78 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { messagesApi } from "@/lib/api";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { messagesApi, contactsApi } from "@/lib/api";
 import type { Conversation } from "@/lib/api";
+import type { Contact } from "@/types";
 import { MessageThread } from "@/components/messages/MessageThread";
+import { MessageInput } from "@/components/messages/MessageInput";
 import { Input } from "@/components/ui/Input";
 import { formatDistanceToNow } from "date-fns";
 
-export function ConversationsView() {
+const PAGE_SIZE = 20;
+
+export function ConversationsView({ contactId: urlContactId }: { contactId?: string } = {}) {
+  const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [resolvedContact, setResolvedContact] = useState<Contact | null>(null);
   const [search, setSearch] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
 
-  const loadConversations = useCallback(async () => {
-    try {
-      setError(null);
-      const { data } = await messagesApi.getConversations();
-      setConversations(data.conversations ?? []);
-    } catch {
-      setError("Failed to load conversations");
-    } finally {
-      setLoading(false);
-    }
+  const selectedContactId = urlContactId ?? null;
+
+  const loadConversations = useCallback(
+    async (append = false) => {
+      if (loadingRef.current) return;
+      loadingRef.current = true;
+      const offset = append ? conversations.length : 0;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      try {
+        setError(null);
+        const { data } = await messagesApi.getConversations({
+          limit: PAGE_SIZE,
+          offset,
+        });
+        const list = data.conversations ?? [];
+        setHasMore(data.hasMore ?? false);
+        setConversations((prev) => (append ? [...prev, ...list] : list));
+      } catch {
+        setError("Failed to load conversations");
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+        loadingRef.current = false;
+      }
+    },
+    [conversations.length]
+  );
+
+  // Initial load
+  useEffect(() => {
+    loadConversations(false);
   }, []);
 
+  // Infinite scroll
   useEffect(() => {
-    loadConversations();
-    // Poll every 10 seconds for new conversations
-    const id = setInterval(loadConversations, 10_000);
-    return () => clearInterval(id);
-  }, [loadConversations]);
+    const el = listRef.current;
+    if (!el || !hasMore || loading || loadingMore) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const nearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      if (nearBottom) loadConversations(true);
+    };
+
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [hasMore, loading, loadingMore, loadConversations]);
 
   const contactName = (c: Conversation["contact"]) =>
     c.name || c.pushName || c.phoneNumber || c.whatsappId.split("@")[0];
@@ -54,22 +95,32 @@ export function ConversationsView() {
     return name.includes(q) || phone.includes(q);
   });
 
+  // Resolve selected contact: from list or fetch by ID when opened via URL
   const selectedConversation = conversations.find(
     (c) => c.contact.id === selectedContactId
   );
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!urlContactId) {
+      setResolvedContact(null);
+      return;
+    }
+    if (selectedConversation) return;
+    let cancelled = false;
+    contactsApi
+      .getById(urlContactId)
+      .then((res) => {
+        const c = (res.data as { contact?: Contact })?.contact ?? (res.data as Contact);
+        if (!cancelled && c) setResolvedContact(c);
+      })
+      .catch(() => { if (!cancelled) setResolvedContact(null); });
+    return () => { cancelled = true; };
+  }, [urlContactId, selectedConversation]);
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-80px)] max-w-7xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-      {/* Left panel - conversation list */}
-      <div className="flex w-[360px] flex-shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-700">
+    <div className="flex h-full w-full overflow-hidden border-b border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+      {/* Left panel - conversation list - always visible */}
+      <div className="flex min-w-[360px] w-[360px] flex-shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-700">
         {/* Search header */}
         <div className="border-b border-zinc-200 p-3 dark:border-zinc-700">
           <h2 className="mb-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
@@ -84,7 +135,13 @@ export function ConversationsView() {
         </div>
 
         {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto">
+        <div ref={listRef} className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="flex flex-1 items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+            </div>
+          ) : (
+            <>
           {error && (
             <div className="m-3 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/30 dark:text-red-200">
               {error}
@@ -100,7 +157,7 @@ export function ConversationsView() {
               return (
                 <button
                   key={conv.contact.id}
-                  onClick={() => setSelectedContactId(conv.contact.id)}
+                  onClick={() => router.push(`/dashboard/conversations/${conv.contact.id}`)}
                   className={`flex w-full items-center gap-3 border-b border-zinc-100 px-4 py-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${
                     isActive
                       ? "bg-emerald-50 hover:bg-emerald-50 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/20"
@@ -146,37 +203,63 @@ export function ConversationsView() {
               );
             })
           )}
+          {loadingMore && !loading && (
+            <div className="flex justify-center py-4">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+            </div>
+          )}
+          {!loading && !loadingMore && hasMore && filtered.length > 0 && !search && (
+            <div className="py-2 text-center text-xs text-zinc-400 dark:text-zinc-500">
+              Scroll for more
+            </div>
+          )}
+            </>
+          )}
         </div>
       </div>
 
       {/* Right panel - message thread */}
-      <div className="flex flex-1 flex-col">
-        {selectedConversation ? (
-          <>
-            {/* Thread header */}
-            <div className="flex items-center gap-3 border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-sm font-semibold text-white">
-                {contactInitial(selectedConversation.contact)}
-              </div>
-              <div>
-                <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
-                  {contactName(selectedConversation.contact)}
-                </h3>
-                {selectedConversation.contact.phoneNumber && (
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {selectedConversation.contact.phoneNumber}
-                  </p>
-                )}
-              </div>
-            </div>
-            {/* Message thread */}
-            <div className="flex-1 overflow-hidden p-4">
-              <MessageThread
-                contactId={selectedConversation.contact.id}
-                fullHeight
-              />
-            </div>
-          </>
+      <div className="flex flex-1 flex-col min-w-0">
+        {(selectedConversation || (selectedContactId && resolvedContact)) ? (
+          (() => {
+            const contact = selectedConversation?.contact ?? resolvedContact!;
+            return (
+              <>
+                {/* Thread header */}
+                <div className="flex items-center gap-3 border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-sm font-semibold text-white">
+                    {contactInitial(contact)}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
+                      {contactName(contact)}
+                    </h3>
+                    {contact.phoneNumber && (
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {contact.phoneNumber}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {/* Message thread */}
+                <div className="flex-1 overflow-hidden">
+                  <MessageThread
+                    key={`${contact.id}-${refreshKey}`}
+                    contactId={contact.id}
+                    fullHeight
+                  />
+                </div>
+                <MessageInput 
+                  contactId={contact.id} 
+                  onSent={() => setRefreshKey(k => k + 1)}
+                />
+              </>
+            );
+          })()
+        ) : selectedContactId ? (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          </div>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center text-zinc-400 dark:text-zinc-500">
             <svg

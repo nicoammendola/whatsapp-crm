@@ -97,7 +97,7 @@ export function DashboardHome() {
                 {needsAttention.slice(0, 5).map((c) => (
                   <li key={c.id}>
                     <Link
-                      href={`/dashboard/contacts/${c.id}`}
+                      href={`/dashboard/conversations/${c.id}`}
                       className="text-emerald-600 hover:underline dark:text-emerald-400"
                     >
                       {contactName(c)}
@@ -128,7 +128,7 @@ export function DashboardHome() {
                 {pendingReplies.slice(0, 5).map((c) => (
                   <li key={c.id}>
                     <Link
-                      href={`/dashboard/contacts/${c.id}`}
+                      href={`/dashboard/conversations/${c.id}`}
                       className="text-emerald-600 hover:underline dark:text-emerald-400"
                     >
                       {contactName(c)}
@@ -155,7 +155,7 @@ export function DashboardHome() {
               {recentConversations.slice(0, 10).map((m) => (
                 <li key={m.contactId} className="flex flex-col gap-0.5">
                   <Link
-                    href={`/dashboard/contacts/${m.contactId}`}
+                    href={`/dashboard/conversations/${m.contactId}`}
                     className="font-medium text-emerald-600 hover:underline dark:text-emerald-400"
                   >
                     {m.contact?.name || m.contact?.pushName || m.contactId}

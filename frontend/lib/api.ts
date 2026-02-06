@@ -96,8 +96,11 @@ export interface Conversation {
 export const messagesApi = {
   getAll: (params?: { limit?: number; offset?: number }) =>
     api.get<{ messages: Message[] }>("/messages", { params }),
-  getConversations: () =>
-    api.get<{ conversations: Conversation[] }>("/messages/conversations"),
+  getConversations: (params?: { limit?: number; offset?: number }) =>
+    api.get<{
+      conversations: Conversation[];
+      hasMore: boolean;
+    }>("/messages/conversations", { params }),
   getByContact: (
     contactId: string,
     params?: { limit?: number; offset?: number }
@@ -105,6 +108,12 @@ export const messagesApi = {
     api.get<{ messages: Message[] }>(`/messages/contact/${contactId}`, {
       params,
     }),
+  markAsRead: (contactId: string) =>
+    api.post<{ success: boolean }>("/messages/mark-read", { contactId }),
+  sendMessage: (
+    contactId: string,
+    data: { body?: string; mediaUrl?: string; mediaType?: "image" | "video" | "audio" | "document" }
+  ) => api.post<{ success: boolean }>("/messages/send", { contactId, ...data }),
 };
 
 // Analytics (Phase 6 — backend: GET /api/analytics/*)

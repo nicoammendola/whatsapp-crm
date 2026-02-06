@@ -9,7 +9,7 @@ export function ContactCard({ contact }: { contact: Contact }) {
   const name = contact.name || contact.pushName || contact.phoneNumber || contact.whatsappId.split("@")[0];
 
   return (
-    <Link href={`/dashboard/contacts/${contact.id}`}>
+    <Link href={`/dashboard/conversations/${contact.id}`}>
       <Card className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
         <CardContent className="flex items-center gap-4 py-3">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-lg font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">

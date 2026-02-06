@@ -10,11 +10,28 @@ import { errorMiddleware } from './middleware/error.middleware';
 
 const app = express();
 
-const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+const frontendUrls = (process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? '')
+  .split(',')
+  .map((url) => url.trim())
+  .filter(Boolean);
+const defaultFrontendUrls = ['http://localhost:3000', 'http://localhost:3002'];
 
 app.use(
   cors({
-    origin: frontendUrl,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        origin.startsWith('http://localhost:')
+      ) {
+        return callback(null, true);
+      }
+      if (frontendUrls.length === 0 && defaultFrontendUrls.includes(origin)) {
+        return callback(null, true);
+      }
+      if (frontendUrls.includes(origin)) return callback(null, true);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
   })
 );

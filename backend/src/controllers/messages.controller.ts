@@ -4,6 +4,17 @@ import { messageService } from '../services/message.service';
 import { contactService } from '../services/contact.service';
 import { parseLimit, parseOffset } from '../utils/helpers';
 
+export async function getConversations(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const conversations = await messageService.getConversations(userId);
+    res.json({ conversations });
+  } catch (error) {
+    console.error('Get conversations error:', error);
+    res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+}
+
 export async function getAllMessages(req: AuthRequest, res: Response): Promise<void> {
   try {
     const userId = req.userId!;

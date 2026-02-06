@@ -1,5 +1,5 @@
 # WhatsApp CRM Backend — production image
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -9,7 +9,8 @@ COPY prisma ./prisma/
 COPY prisma.config.ts ./
 
 # Install all dependencies (need devDependencies for build)
-RUN npm ci
+# --legacy-peer-deps: skip unmet optional peer deps (react from prisma-studio, sharp from baileys)
+RUN npm ci --legacy-peer-deps
 
 # Copy source and config
 COPY tsconfig.json ./

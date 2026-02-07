@@ -121,12 +121,16 @@ export function MessageThread({
              const list = res.data?.messages ?? [];
              if (list.length === 0) return;
              
+             let hasNewMessages = false;
+             
              setMessages((prev) => {
                  const existingIds = new Set(prev.map(m => m.id));
                  const newMessages = list.filter(m => !existingIds.has(m.id));
                  
                  // If no new messages, do nothing
                  if (newMessages.length === 0) return prev;
+                 
+                 hasNewMessages = true;
                  
                  // Merge and sort
                  const combined = [...prev];
@@ -151,10 +155,10 @@ export function MessageThread({
              // Scroll to bottom if we are near bottom?
              // Or just let user scroll.
              // Usually we scroll if user is at bottom.
-             if (scrollContainerRef.current) {
+             if (hasNewMessages && scrollContainerRef.current) {
                  const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
                  const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
-                 if (isAtBottom && newMessages.length > 0) {
+                 if (isAtBottom) {
                       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
                  }
              }

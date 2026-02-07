@@ -56,7 +56,32 @@ export function ContactDetailsSidebar({ contactId }: ContactDetailsSidebarProps)
     setContact((prev) => (prev ? { ...prev, ...data } : prev));
 
     try {
-      await contactsApi.update(contactId, data);
+      // Build API-compatible data object, filtering out null values
+      const apiData: {
+        notes?: string;
+        tags?: string[];
+        birthday?: string;
+        company?: string;
+        jobTitle?: string;
+        location?: string;
+        relationshipType?: string;
+        contactFrequency?: string;
+        importance?: number;
+        customFields?: Record<string, any>;
+      } = {};
+
+      if (data.notes !== null && data.notes !== undefined) apiData.notes = data.notes;
+      if (data.tags !== null && data.tags !== undefined) apiData.tags = data.tags;
+      if (data.birthday !== null && data.birthday !== undefined) apiData.birthday = data.birthday;
+      if (data.company !== null && data.company !== undefined) apiData.company = data.company;
+      if (data.jobTitle !== null && data.jobTitle !== undefined) apiData.jobTitle = data.jobTitle;
+      if (data.location !== null && data.location !== undefined) apiData.location = data.location;
+      if (data.relationshipType !== null && data.relationshipType !== undefined) apiData.relationshipType = data.relationshipType;
+      if (data.contactFrequency !== null && data.contactFrequency !== undefined) apiData.contactFrequency = data.contactFrequency;
+      if (data.importance !== null && data.importance !== undefined) apiData.importance = data.importance;
+      if (data.customFields !== null && data.customFields !== undefined) apiData.customFields = data.customFields;
+
+      await contactsApi.update(contactId, apiData);
       // Refetch to get server state
       const res = await contactsApi.getById(contactId);
       const c = (res.data as { contact?: Contact })?.contact ?? (res.data as Contact);

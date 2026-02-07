@@ -412,11 +412,25 @@ export class DashboardService {
       const fields = contact.customFields as Record<string, any>;
 
       for (const [fieldName, value] of Object.entries(fields)) {
-        // Skip if value is not a string that looks like a date
-        if (typeof value !== 'string') continue;
+        // Handle both plain string dates and structured date objects
+        let dateString: string | null = null;
+        
+        if (typeof value === 'string') {
+          // Direct string format: "fieldName": "1956-10-29"
+          dateString = value;
+        } else if (typeof value === 'object' && value !== null) {
+          // Structured format: "fieldName": { "type": "date", "value": "1956-10-29" }
+          const obj = value as { type?: string; value?: string };
+          if (obj.type === 'date' && typeof obj.value === 'string') {
+            dateString = obj.value;
+          }
+        }
+        
+        // Skip if no valid date string found
+        if (!dateString) continue;
         
         // Try to parse as date
-        const parsedDate = new Date(value);
+        const parsedDate = new Date(dateString);
         if (isNaN(parsedDate.getTime())) continue;
 
         // Check if it's a reasonable date (between 1900 and 2100)

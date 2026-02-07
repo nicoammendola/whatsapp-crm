@@ -20,6 +20,7 @@
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "@supabase/supabase-js": "^2.95.3",
+    "@types/socket.io": "^3.0.1",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
@@ -29,7 +30,8 @@
     "mime-types": "^3.0.2",
     "pg": "^8.18.0",
     "pino": "^10.3.0",
-    "qrcode-terminal": "^0.12.0"
+    "qrcode-terminal": "^0.12.0",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

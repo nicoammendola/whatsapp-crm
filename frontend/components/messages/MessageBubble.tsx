@@ -1,7 +1,31 @@
 "use client";
 
 import type { Message } from "@/types";
+import type { Contact } from "@/types";
 import { format } from "date-fns";
+
+function hashToColor(str: string): string {
+  let n = 0;
+  for (let i = 0; i < str.length; i++) n = (n << 5) - n + str.charCodeAt(i);
+  const colors = [
+    "bg-rose-500",
+    "bg-amber-500",
+    "bg-emerald-500",
+    "bg-cyan-500",
+    "bg-violet-500",
+    "bg-pink-500",
+    "bg-sky-500",
+    "bg-orange-500",
+  ];
+  return colors[Math.abs(n) % colors.length];
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2)
+    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+  return name.charAt(0).toUpperCase() || "?";
+}
 
 function MediaContent({ message }: { message: Message }) {
   const { type, mediaUrl, body, hasMedia } = message;
@@ -106,39 +130,128 @@ function MediaContent({ message }: { message: Message }) {
   return null;
 }
 
-export function MessageBubble({ message }: { message: Message }) {
+function QuotedBlock({
+  quotedContent,
+  quotedMessage,
+  fromMe,
+}: {
+  quotedContent?: string | null;
+  quotedMessage?: Message | null;
+  fromMe: boolean;
+}) {
+  const text =
+    quotedContent ??
+    (quotedMessage?.body && quotedMessage.body.length > 0
+      ? quotedMessage.body
+      : quotedMessage
+        ? "[Media]"
+        : null);
+  if (!text) return null;
+  return (
+    <div
+      className={`mb-2 border-l-2 pl-2 text-xs ${
+        fromMe
+          ? "border-emerald-200 text-emerald-100"
+          : "border-zinc-300 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
+      }`}
+    >
+      <span className="font-medium opacity-90">Replying to </span>
+      <span className="line-clamp-2 break-words opacity-90">{text}</span>
+    </div>
+  );
+}
+
+export function MessageBubble({
+  message,
+  contact,
+}: {
+  message: Message;
+  contact?: Contact | null;
+}) {
   const hasMediaContent = message.hasMedia || message.mediaUrl;
   const body = message.body;
+  const hasQuoted = message.quotedContent || message.quotedMessage;
+  const showSender =
+    (contact?.isGroup || message.senderJid || message.senderName) &&
+    !message.fromMe &&
+    (message.senderName || message.senderJid);
+  const senderLabel =
+    message.senderName ||
+    (message.senderPhone ? `+${message.senderPhone.replace(/\D/g, "").slice(-10)}` : null) ||
+    (message.senderJid ? message.senderJid.split("@")[0] : "") ||
+    "Unknown";
+  const senderColor = message.senderJid
+    ? hashToColor(message.senderJid)
+    : "bg-zinc-500";
 
   return (
     <div
       className={`mb-2 flex ${message.fromMe ? "justify-end" : "justify-start"}`}
     >
-      <div
-        className={`max-w-[75%] rounded-2xl px-4 py-2 ${
-          message.fromMe
-            ? "bg-emerald-600 text-white"
-            : "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
-        }`}
-      >
-        {hasMediaContent && <MediaContent message={message} />}
-        {body && (
-          <p className="whitespace-pre-wrap break-words text-sm">{body}</p>
+      <div className="flex max-w-[75%] flex-col items-end">
+        {showSender && (
+          <div className="mb-0.5 flex items-center gap-1.5">
+            <div
+              className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-medium text-white ${senderColor}`}
+              title={senderLabel}
+            >
+              {initials(senderLabel)}
+            </div>
+            <span className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+              {senderLabel}
+            </span>
+          </div>
         )}
-        {!body && !hasMediaContent && (
-          <p className="whitespace-pre-wrap break-words text-sm italic opacity-70">
-            (empty)
-          </p>
-        )}
-        <span
-          className={`mt-1 block text-xs ${
+        <div
+          className={`rounded-2xl px-4 py-2 ${
             message.fromMe
-              ? "text-emerald-100"
-              : "text-zinc-500 dark:text-zinc-400"
+              ? "bg-emerald-600 text-white"
+              : "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
           }`}
         >
-          {format(new Date(message.timestamp), "HH:mm")}
-        </span>
+          {hasQuoted && (
+            <QuotedBlock
+              quotedContent={message.quotedContent}
+              quotedMessage={message.quotedMessage}
+              fromMe={message.fromMe}
+            />
+          )}
+          {hasMediaContent && <MediaContent message={message} />}
+          {body && (
+            <p className="whitespace-pre-wrap break-words text-sm">{body}</p>
+          )}
+          {!body && !hasMediaContent && (
+            <p className="whitespace-pre-wrap break-words text-sm italic opacity-70">
+              {hasQuoted ? "—" : "(empty)"}
+            </p>
+          )}
+
+          {/* Time & Reactions Footer */}
+          <div className="mt-1 flex items-center justify-end gap-2 flex-wrap min-h-[1.25rem]">
+            {message.reactions && message.reactions.length > 0 && (
+              <div className="flex flex-wrap gap-1 bg-black/10 dark:bg-white/10 rounded-full px-1.5 py-0.5 -ml-1">
+                {message.reactions.map((r, i) => (
+                  <span
+                    key={`${r.emoji}-${r.fromMe}-${i}`}
+                    className="text-xs leading-none"
+                    title={r.fromMe ? "You" : undefined}
+                  >
+                    {r.emoji}
+                  </span>
+                ))}
+              </div>
+            )}
+            <span
+                className={`text-xs ${
+                message.fromMe
+                    ? "text-emerald-100"
+                    : "text-zinc-500 dark:text-zinc-400"
+                }`}
+            >
+                {format(new Date(message.timestamp), "HH:mm")}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );

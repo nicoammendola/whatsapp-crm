@@ -29,8 +29,12 @@ export async function sendMessage(req: AuthRequest, res: Response): Promise<void
       res.status(400).json({ error: 'Contact ID and content required' });
       return;
     }
-    await baileysService.sendMessage(userId, contactId, { body, mediaUrl, mediaType });
-    res.json({ success: true });
+    const result = await baileysService.sendMessage(userId, contactId, { body, mediaUrl, mediaType });
+    let message = null;
+    if (result?.id) {
+      message = await messageService.getMessageById(userId, result.id);
+    }
+    res.json({ success: true, message: message ?? undefined });
   } catch (error: any) {
     console.error('Send message error:', error);
     res.status(500).json({ error: error.message || 'Failed to send message' });
@@ -42,7 +46,8 @@ export async function getConversations(req: AuthRequest, res: Response): Promise
     const userId = req.userId!;
     const limit = parseLimit(req.query.limit, 20);
     const offset = parseOffset(req.query.offset, 0);
-    const { conversations, hasMore } = await messageService.getConversations(userId, limit, offset);
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+    const { conversations, hasMore } = await messageService.getConversations(userId, limit, offset, search);
     res.json({ conversations, hasMore });
   } catch (error) {
     console.error('Get conversations error:', error);

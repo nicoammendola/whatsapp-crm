@@ -59,6 +59,25 @@ model Contact {
   notes           String?
   tags           String[]  // Array of tags
 
+  // NEW: Predefined enrichment fields
+  birthday        DateTime?
+  company         String?
+  jobTitle        String?
+  location        String?
+
+  // NEW: Relationship metadata
+  relationshipType String?  // "family", "close_friend", "colleague", "acquaintance"
+  contactFrequency String?  // "daily", "weekly", "monthly", "quarterly"
+  importance      Int?      @default(0) // 0-5 scale
+
+  // NEW: Custom fields (JSONB for flexibility)
+  customFields    Json?     @db.JsonB
+
+  // NEW: Interaction stats (computed/cached)
+  interactionCount7d  Int? @default(0)
+  interactionCount30d Int? @default(0)
+  interactionCount90d Int? @default(0)
+
   messages        Message[]
 
   createdAt       DateTime  @default(now())
@@ -66,6 +85,7 @@ model Contact {
 
   @@unique([userId, whatsappId])
   @@index([userId, lastInteraction])
+  @@index([userId, relationshipType])
   @@map("contacts")
 }
 
@@ -86,6 +106,17 @@ model Message {
   // Message type
   type        MessageType @default(TEXT)
 
+  // Reply-to (quoted)
+  quotedMessageId String?
+  quotedMessage   Message?  @relation("MessageReplies", fields: [quotedMessageId], references: [id])
+  replies        Message[] @relation("MessageReplies")
+  quotedContent  String?   // Denormalized text for display
+
+  // Group sender identity
+  senderJid   String?     // In groups: participant JID
+  senderName  String?     // pushName at time of send
+  senderPhone String?
+
   // Media
   hasMedia    Boolean   @default(false)
   mediaUrl    String?   // Local path or S3 URL
@@ -96,11 +127,26 @@ model Message {
   isRead      Boolean   @default(false)
   isDeleted   Boolean   @default(false)
 
+  reactions   Reaction[]
+
   createdAt   DateTime  @default(now())
 
   @@index([userId, contactId, timestamp])
   @@index([userId, timestamp])
   @@map("messages")
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  emoji     String
+  fromMe    Boolean
+  timestamp DateTime @default(now())
+
+  @@unique([messageId, fromMe])
+  @@index([messageId])
+  @@map("reactions")
 }
 
 enum MessageType {

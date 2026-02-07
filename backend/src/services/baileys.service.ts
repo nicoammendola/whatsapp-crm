@@ -1,6 +1,7 @@
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
+  jidNormalizedUser,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
@@ -24,6 +25,13 @@ const pendingInits = new Set<string>();
 
 function log(userId: string, message: string): void {
   console.log(`${LOG_PREFIX} userId=${userId} ${message}`);
+}
+
+function isStatusJid(remoteJid: string | null | undefined): boolean {
+  if (!remoteJid) return true;
+  return (
+    remoteJid === 'status@broadcast' || remoteJid.endsWith('@broadcast')
+  );
 }
 
 export class BaileysService {
@@ -338,9 +346,24 @@ export class BaileysService {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       // Process both real-time ('notify') and catch-up ('append') messages
       if (type === 'notify' || type === 'append') {
-        for (const msg of messages) {
+        // Filter out status messages (stories)
+        const filtered = messages.filter(
+          (msg) => !isStatusJid(msg.key.remoteJid)
+        );
+        for (const msg of filtered) {
           try {
             await messageService.handleIncomingMessage(userId, msg, sock);
+            // Self-chat (Saved Messages): label contact with friendly name
+            const remoteJid = msg.key.remoteJid;
+            const selfJid = sock.user?.id;
+            if (remoteJid && selfJid && jidNormalizedUser(remoteJid) === jidNormalizedUser(selfJid)) {
+              const normalizedSelfJid = jidNormalizedUser(selfJid);
+              await contactService.upsertContact(userId, {
+                whatsappId: normalizedSelfJid,
+                name: 'Saved Messages',
+                pushName: 'Saved Messages',
+              });
+            }
           } catch (err) {
             console.error(`${LOG_PREFIX} Error handling message:`, err);
           }
@@ -356,9 +379,15 @@ export class BaileysService {
         for (const contact of historyContacts) {
           const jid = contact.id;
           if (!jid) continue;
+          const normalizedJid = jidNormalizedUser(jid ?? undefined);
+          // Skip @lid (Local ID) contacts - these are temporary
+          if (normalizedJid.endsWith('@lid')) {
+            log(userId, `Skipping @lid contact in history: ${normalizedJid}`);
+            continue;
+          }
           try {
             await contactService.upsertContact(userId, {
-              whatsappId: jid,
+              whatsappId: normalizedJid,
               name: contact.name,
               pushName: contact.notify,
             });
@@ -369,14 +398,28 @@ export class BaileysService {
       }
 
       if (historyMessages) {
-        for (const msg of historyMessages) {
+        // Filter out status messages from history sync
+        const filtered = historyMessages.filter(
+          (msg) => !isStatusJid(msg.key?.remoteJid)
+        );
+        for (const msg of filtered) {
           try {
             await messageService.handleIncomingMessage(userId, msg, sock);
+            const remoteJid = msg.key?.remoteJid;
+            const selfJid = sock.user?.id;
+            if (remoteJid && selfJid && jidNormalizedUser(remoteJid) === jidNormalizedUser(selfJid)) {
+              const normalizedSelfJid = jidNormalizedUser(selfJid);
+              await contactService.upsertContact(userId, {
+                whatsappId: normalizedSelfJid,
+                name: 'Saved Messages',
+                pushName: 'Saved Messages',
+              });
+            }
           } catch (err) {
             console.error(`${LOG_PREFIX} Error handling history message:`, err);
           }
         }
-        log(userId, `history sync processed ${historyMessages.length} messages`);
+        log(userId, `history sync processed ${filtered.length} messages`);
       }
     });
 
@@ -384,9 +427,15 @@ export class BaileysService {
       for (const contact of contacts) {
         const jid = contact.id;
         if (!jid) continue;
+        const normalizedJid = jidNormalizedUser(jid ?? undefined);
+        // Skip @lid (Local ID) contacts - these are temporary
+        if (normalizedJid.endsWith('@lid')) {
+          log(userId, `Skipping @lid contact: ${normalizedJid}`);
+          continue;
+        }
         try {
           await contactService.upsertContact(userId, {
-            whatsappId: jid,
+            whatsappId: normalizedJid,
             name: contact.name,
             pushName: contact.notify,
             profilePicUrl: contact.imgUrl ?? undefined,
@@ -401,15 +450,37 @@ export class BaileysService {
       for (const contact of updates) {
         const jid = contact.id;
         if (!jid) continue;
+        const normalizedJid = jidNormalizedUser(jid ?? undefined);
+        // Skip @lid (Local ID) contacts - these are temporary
+        if (normalizedJid.endsWith('@lid')) {
+          log(userId, `Skipping @lid contact: ${normalizedJid}`);
+          continue;
+        }
         try {
           await contactService.upsertContact(userId, {
-            whatsappId: jid,
+            whatsappId: normalizedJid,
             name: contact.name,
             pushName: contact.notify,
             profilePicUrl: contact.imgUrl ?? undefined,
           });
         } catch (err) {
           console.error(`${LOG_PREFIX} Error updating contact ${jid}:`, err);
+        }
+      }
+    });
+
+    sock.ev.on('messages.reaction', async (reactions) => {
+      if (!Array.isArray(reactions)) return;
+      for (const { key, reaction } of reactions) {
+        try {
+          await messageService.handleReaction(userId, {
+            remoteJid: key.remoteJid ?? undefined,
+            id: key.id ?? undefined,
+            fromMe: key.fromMe ?? false,
+            participant: key.participant ?? undefined,
+          }, reaction ?? {});
+        } catch (err) {
+          console.error(`${LOG_PREFIX} Error handling reaction:`, err);
         }
       }
     });
@@ -421,14 +492,20 @@ export class BaileysService {
       const store = sock as unknown as { store?: { contacts?: Record<string, { name?: string; notify?: string }> } };
       const contacts = store.store?.contacts;
       if (contacts && Object.keys(contacts).length > 0) {
+        let synced = 0;
         for (const [jid, contact] of Object.entries(contacts)) {
+          const normalizedJid = jidNormalizedUser(jid ?? undefined);
+          // Skip @lid (Local ID) contacts - these are temporary
+          if (normalizedJid.endsWith('@lid')) continue;
+          
           await contactService.upsertContact(userId, {
-            whatsappId: jid,
+            whatsappId: normalizedJid,
             name: contact.name,
             pushName: contact.notify,
           });
+          synced++;
         }
-        log(userId, `synced ${Object.keys(contacts).length} contacts from store`);
+        log(userId, `synced ${synced} contacts from store`);
       }
     } catch (error) {
       console.error(`${LOG_PREFIX} Error syncing contacts:`, error);
@@ -491,7 +568,7 @@ export class BaileysService {
     userId: string,
     contactId: string,
     content: { body?: string; mediaUrl?: string; mediaType?: 'image' | 'video' | 'audio' | 'document' }
-  ): Promise<void> {
+  ): Promise<{ id: string } | null> {
     const sock = activeConnections.get(userId);
     if (!sock) {
       throw new Error('WhatsApp not connected');
@@ -530,8 +607,42 @@ export class BaileysService {
     }
 
     if (sentMsg) {
-      await messageService.handleIncomingMessage(userId, sentMsg, sock);
+      const result = await messageService.handleIncomingMessage(userId, sentMsg, sock);
+      return result ?? null;
     }
+    return null;
+  }
+
+  async refreshProfilePicture(userId: string, contactId: string): Promise<string | null> {
+    const sock = activeConnections.get(userId);
+    if (!sock) {
+      throw new Error('WhatsApp not connected');
+    }
+
+    const contact = await contactService.getContactById(userId, contactId);
+    if (!contact || !contact.whatsappId) {
+      throw new Error('Contact not found or invalid');
+    }
+
+    try {
+      const url = await sock.profilePictureUrl(contact.whatsappId, 'image'); // 'image' for high res, 'preview' for low
+      if (url) {
+        await contactService.upsertContact(userId, {
+            whatsappId: contact.whatsappId,
+            profilePicUrl: url
+        });
+        return url;
+      }
+    } catch (err: any) {
+      // 404/401 means no profile picture or privacy settings
+      const status = err?.data ?? err?.output?.statusCode;
+      if (status === 404 || status === 401) {
+          // No profile pic
+          return null;
+      }
+      console.error(`${LOG_PREFIX} Failed to fetch profile picture for ${contact.whatsappId}:`, err);
+    }
+    return null;
   }
 }
 

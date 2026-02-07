@@ -3,60 +3,98 @@
 import { useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { messagesApi } from "@/lib/api";
+import type { Message } from "@/types";
+
+function buildOptimisticMessage(
+  contactId: string,
+  body: string | null,
+  mediaUrl: string | null,
+  mediaType?: string
+): Message {
+  const now = new Date().toISOString();
+  const type = mediaType?.toUpperCase() ?? "TEXT";
+  return {
+    id: `temp-${Date.now()}`,
+    contactId,
+    whatsappId: "",
+    fromMe: true,
+    body: body ?? null,
+    timestamp: now,
+    type: type as Message["type"],
+    hasMedia: !!mediaUrl,
+    mediaUrl,
+    isRead: false,
+  };
+}
 
 export function MessageInput({
   contactId,
-  onSent,
+  onOptimisticMessage,
+  onSendSuccess,
+  onSendError,
 }: {
   contactId: string;
-  onSent?: () => void;
+  onOptimisticMessage?: (message: Message) => void;
+  onSendSuccess?: (message: Message) => void;
+  onSendError?: () => void;
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = async () => {
     if ((!text.trim() && !fileInputRef.current?.files?.length) || sending) return;
 
-    setSending(true);
-    try {
-      let mediaUrl: string | undefined;
-      let mediaType: "image" | "video" | "audio" | "document" | undefined;
+    let mediaUrl: string | undefined;
+    let mediaType: "image" | "video" | "audio" | "document" | undefined;
 
-      const file = fileInputRef.current?.files?.[0];
-      if (file) {
+    const file = fileInputRef.current?.files?.[0];
+    if (file && supabase) {
+      try {
         const ext = file.name.split(".").pop();
         const fileName = `${contactId}/${Date.now()}.${ext}`;
-        const { data, error } = await supabase.storage
+        const { error } = await supabase.storage
           .from("media")
           .upload(fileName, file);
-
         if (error) throw error;
-
         const { data: publicData } = supabase.storage
           .from("media")
           .getPublicUrl(fileName);
-        
         mediaUrl = publicData.publicUrl;
-        
         if (file.type.startsWith("image/")) mediaType = "image";
         else if (file.type.startsWith("video/")) mediaType = "video";
         else if (file.type.startsWith("audio/")) mediaType = "audio";
         else mediaType = "document";
+      } catch (e) {
+        console.error("Upload failed:", e);
+        alert("Failed to upload file");
+        return;
       }
+    } else if (file && !supabase) {
+      alert("File upload not configured");
+      return;
+    }
 
-      await messagesApi.sendMessage(contactId, {
-        body: text,
+    const body = text.trim() || null;
+    const optimistic = buildOptimisticMessage(contactId, body, mediaUrl ?? null, mediaType);
+    onOptimisticMessage?.(optimistic);
+    setText("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setSendError(false);
+    setSending(true);
+
+    try {
+      const { data } = await messagesApi.sendMessage(contactId, {
+        body: body ?? undefined,
         mediaUrl,
         mediaType,
       });
-
-      setText("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      onSent?.();
+      if (data?.message) onSendSuccess?.(data.message);
     } catch (error) {
       console.error("Failed to send message:", error);
-      alert("Failed to send message");
+      onSendError?.();
+      setSendError(true);
     } finally {
       setSending(false);
     }
@@ -71,6 +109,11 @@ export function MessageInput({
 
   return (
     <div className="border-t border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+      {sendError && (
+        <p className="mb-2 text-xs text-red-600 dark:text-red-400">
+          Failed to send. You can try again.
+        </p>
+      )}
       <div className="flex items-end gap-2">
         <button
           onClick={() => fileInputRef.current?.click()}

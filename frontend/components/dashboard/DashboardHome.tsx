@@ -1,174 +1,194 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { analyticsApi, contactsApi, messagesApi } from "@/lib/api";
-import type { Contact, Message } from "@/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatDistanceToNow } from "date-fns";
+import { useEffect, useState, useCallback } from "react";
+import { dashboardApi } from "@/lib/api";
+import { useSocket } from "@/lib/socket";
+import type { DashboardStats } from "@/types";
+import HeroStatsBar from "./HeroStatsBar";
+import ActiveContactsCard from "./ActiveContactsCard";
+import AwaitingRepliesCard from "./AwaitingRepliesCard";
+import ToContactCard from "./ToContactCard";
+import UpcomingBirthdaysCard from "./UpcomingBirthdaysCard";
+import UpcomingImportantDatesCard from "./UpcomingImportantDatesCard";
+import RelationshipHealthCard from "./RelationshipHealthCard";
+import WeeklyInsightsCard from "./WeeklyInsightsCard";
+import DashboardSkeleton from "./DashboardSkeleton";
+
+type TimePeriod = 'today' | '7days' | '30days' | '90days';
 
 export function DashboardHome() {
-  const [needsAttention, setNeedsAttention] = useState<Contact[]>([]);
-  const [pendingReplies, setPendingReplies] = useState<Contact[]>([]);
-  const [recentMessages, setRecentMessages] = useState<Message[]>([]);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TimePeriod>('today');
+  const socket = useSocket();
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        setError(null);
-        const [attentionRes, pendingRes, messagesRes] = await Promise.all([
-          analyticsApi.getContactsNeedingAttention(),
-          analyticsApi.getPendingReplies(),
-          messagesApi.getAll({ limit: 15 }),
-        ]);
-        if (cancelled) return;
-        setNeedsAttention(attentionRes.data?.contacts ?? []);
-        setPendingReplies(pendingRes.data?.contacts ?? []);
-        setRecentMessages(messagesRes.data?.messages ?? []);
-      } catch (e) {
-        if (!cancelled) {
-          setError("Failed to load dashboard data");
-          const [contactsRes, messagesRes] = await Promise.all([
-            contactsApi.getAll().catch(() => ({ data: { contacts: [] } })),
-            messagesApi.getAll({ limit: 15 }).catch(() => ({ data: { messages: [] } })),
-          ]);
-          setNeedsAttention(contactsRes.data?.contacts?.slice(0, 5) ?? []);
-          setRecentMessages(messagesRes.data?.messages ?? []);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  const loadDashboardData = useCallback(async () => {
+    try {
+      setError(null);
+      const response = await dashboardApi.getStats();
+      setStats(response.data);
+    } catch (e) {
+      console.error("Failed to load dashboard data:", e);
+      setError("Failed to load dashboard data. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  // Real-time updates via Socket.io
+  useEffect(() => {
+    if (!socket) return;
+
+    let debounceTimeout: NodeJS.Timeout;
+
+    const handleNewMessage = () => {
+      // Clear existing timeout
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+      
+      // Debounced refresh - wait 2 seconds after last message
+      debounceTimeout = setTimeout(() => {
+        loadDashboardData();
+      }, 2000);
+    };
+
+    socket.on("new_message", handleNewMessage);
+
+    return () => {
+      socket.off("new_message", handleNewMessage);
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+    };
+  }, [socket, loadDashboardData]);
+
   if (loading) {
+    return <DashboardSkeleton />;
+  }
+
+  if (error || !stats) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+      <div className="mx-auto max-w-6xl space-y-6">
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+          Dashboard
+        </h1>
+        <div className="rounded-lg bg-red-50 p-4 dark:bg-red-900/30">
+          <p className="text-sm text-red-800 dark:text-red-200">
+            {error || "Failed to load dashboard data"}
+          </p>
+          <button
+            onClick={loadDashboardData}
+            className="mt-2 text-sm font-medium text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+          >
+            Try again
+          </button>
+        </div>
       </div>
     );
   }
 
-  const contactName = (c: Contact) => c.name || c.pushName || c.phoneNumber || c.whatsappId.split("@")[0];
-  const messagePreview = (m: Message) => (m.body && m.body.length > 60 ? `${m.body.slice(0, 60)}…` : m.body) || "(media)";
+  // Calculate stats based on active tab
+  const getDisplayStats = () => {
+    if (!stats) return null;
+    
+    // For now, we only have "today" stats from backend
+    // In the future, we could fetch different time periods
+    return stats.today;
+  };
 
-  // Group messages by contact — keep only the latest message per contact
-  const recentConversations = (() => {
-    const byContact = new Map<string, Message>();
-    for (const m of recentMessages) {
-      if (!byContact.has(m.contactId)) {
-        byContact.set(m.contactId, m);
-      }
-    }
-    return Array.from(byContact.values());
-  })();
+  const displayStats = getDisplayStats();
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-        Dashboard
-      </h1>
-      {error && (
-        <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
-          {error} — showing available data.
-        </div>
-      )}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Need to reach out</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {needsAttention.length === 0 ? (
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                No contacts flagged. Connect WhatsApp and sync contacts to see insights.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {needsAttention.slice(0, 5).map((c) => (
-                  <li key={c.id}>
-                    <Link
-                      href={`/dashboard/conversations/${c.id}`}
-                      className="text-emerald-600 hover:underline dark:text-emerald-400"
-                    >
-                      {contactName(c)}
-                    </Link>
-                    {c.lastInteraction && (
-                      <span className="ml-2 text-xs text-zinc-500">
-                        {formatDistanceToNow(new Date(c.lastInteraction), { addSuffix: true })}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Pending replies</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {pendingReplies.length === 0 ? (
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                No pending replies.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {pendingReplies.slice(0, 5).map((c) => (
-                  <li key={c.id}>
-                    <Link
-                      href={`/dashboard/conversations/${c.id}`}
-                      className="text-emerald-600 hover:underline dark:text-emerald-400"
-                    >
-                      {contactName(c)}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+    <div className="mx-auto max-w-7xl space-y-8">
+      <div className="flex items-center justify-between animate-fade-in">
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+          Dashboard
+        </h1>
+        <button
+          onClick={loadDashboardData}
+          className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          title="Refresh dashboard"
+        >
+          Refresh
+        </button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent conversations</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {recentConversations.length === 0 ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              No messages yet. Connect WhatsApp in Settings to sync.
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {recentConversations.slice(0, 10).map((m) => (
-                <li key={m.contactId} className="flex flex-col gap-0.5">
-                  <Link
-                    href={`/dashboard/conversations/${m.contactId}`}
-                    className="font-medium text-emerald-600 hover:underline dark:text-emerald-400"
-                  >
-                    {m.contact?.name || m.contact?.pushName || m.contactId}
-                  </Link>
-                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                    {messagePreview(m)} · {formatDistanceToNow(new Date(m.timestamp), { addSuffix: true })}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      {/* Section 1: Stats with Tabs */}
+      <div className="animate-fade-in" style={{ animationDelay: '50ms' }}>
+        <HeroStatsBar 
+          stats={displayStats || stats.today} 
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
+      </div>
+
+      {/* Divider */}
+      <div className="border-t border-zinc-200 dark:border-zinc-700" />
+
+      {/* Section 2: Activity & Health */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-1 rounded-full bg-emerald-500" />
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Activity & Health
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="animate-fade-in" style={{ animationDelay: '100ms' }}>
+            <ActiveContactsCard data={stats.activeContacts} />
+          </div>
+          <div className="animate-fade-in" style={{ animationDelay: '150ms' }}>
+            <RelationshipHealthCard health={stats.relationshipHealth} />
+          </div>
+          <div className="animate-fade-in" style={{ animationDelay: '175ms' }}>
+            <WeeklyInsightsCard insights={stats.weeklyInsights} />
+          </div>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div className="border-t border-zinc-200 dark:border-zinc-700" />
+
+      {/* Section 3: Contact Suggestions */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-1 rounded-full bg-blue-500" />
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Contact Suggestions
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="animate-fade-in" style={{ animationDelay: '200ms' }}>
+            <AwaitingRepliesCard contacts={stats.awaitingReplies} />
+          </div>
+          <div className="animate-fade-in" style={{ animationDelay: '250ms' }}>
+            <ToContactCard contacts={stats.toContact} />
+          </div>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div className="border-t border-zinc-200 dark:border-zinc-700" />
+
+      {/* Important Dates */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-1 rounded-full bg-purple-500" />
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Important Dates
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className="animate-fade-in" style={{ animationDelay: '300ms' }}>
+            <UpcomingBirthdaysCard birthdays={stats.upcomingBirthdays} />
+          </div>
+          <div className="animate-fade-in" style={{ animationDelay: '350ms' }}>
+            <UpcomingImportantDatesCard dates={stats.upcomingImportantDates} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

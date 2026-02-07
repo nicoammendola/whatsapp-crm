@@ -6,6 +6,7 @@ import whatsappRoutes from './routes/whatsapp.routes';
 import contactsRoutes from './routes/contacts.routes';
 import messagesRoutes from './routes/messages.routes';
 import analyticsRoutes from './routes/analytics.routes';
+import dashboardRoutes from './routes/dashboard.routes';
 import { errorMiddleware } from './middleware/error.middleware';
 
 const app = express();
@@ -42,6 +43,7 @@ app.use('/whatsapp', whatsappRoutes);
 app.use('/contacts', contactsRoutes);
 app.use('/messages', messagesRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });

@@ -95,6 +95,16 @@ All require auth.
 
 ---
 
+### POST /contacts/:id/refresh-profile-picture
+
+Fetches the contact's profile picture from WhatsApp and updates `profilePicUrl`. Requires WhatsApp to be connected.
+
+**Success (200):** `{ "profilePicUrl": string | null }` — the new URL if fetched, otherwise the existing URL or null.
+
+**Errors:** `404` — Contact not found; `503` — WhatsApp not connected; `500` — Failed to refresh.
+
+---
+
 ## Messages
 
 All require auth.
@@ -105,7 +115,12 @@ All require auth.
 
 **Success (200):** `{ "messages": Message[] }` — each message includes `contact: { id, name, pushName, profilePicUrl }`.
 
-**Message:** `{ id, userId, contactId, whatsappId, fromMe, body?, timestamp, type, hasMedia, contact?, ... }`
+**Message:** `{ id, userId, contactId, whatsappId, fromMe, body?, timestamp, type, hasMedia, quotedContent?, quotedMessage?, senderJid?, senderName?, reactions?, contact?, ... }`
+
+- `quotedContent` — Denormalized quoted text for display.
+- `quotedMessage` — Related message when reply-to is stored (`id`, `body`, `fromMe`, `timestamp`).
+- `senderJid`, `senderName` — Group sender identity (participant JID and pushName).
+- `reactions` — Array of `{ emoji, fromMe }`.
 
 ---
 
@@ -113,9 +128,17 @@ All require auth.
 
 **Query:** `limit` (1–200, default 50), `offset` (default 0)
 
-**Success (200):** `{ "messages": Message[] }`
+**Success (200):** `{ "messages": Message[] }` — each message includes `contact`, `quotedMessage`, `reactions`.
 
 **Errors:** `404` — `{ "error": "Contact not found" }`
+
+---
+
+### POST /messages/send
+
+**Body:** `{ "contactId": string, "body"?: string, "mediaUrl"?: string, "mediaType"?: "image" | "video" | "audio" | "document" }`
+
+**Success (200):** `{ "success": true, "message"?: Message }` — the created message for optimistic UI and real-time dedupe.
 
 ---
 

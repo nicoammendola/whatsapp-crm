@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance } from "axios";
-import type { User, Contact, Message, WhatsAppStatusResponse } from "@/types";
+import type { User, Contact, ContactStats, Message, WhatsAppStatusResponse, DashboardStats } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -79,9 +79,23 @@ export const whatsappApi = {
 
 // Contacts
 export const contactsApi = {
-  getAll: () => api.get<{ contacts?: Contact[] }>("/contacts"),
+  getAll: (params?: { search?: string }) => api.get<{ contacts?: Contact[] }>("/contacts", { params }),
   getById: (id: string) => api.get<Contact>(`/contacts/${id}`),
-  update: (id: string, data: { notes?: string; tags?: string[] }) =>
+  getStats: (id: string) => api.get<ContactStats>(`/contacts/${id}/stats`),
+  refreshProfilePicture: (id: string) =>
+    api.post<{ profilePicUrl: string | null }>(`/contacts/${id}/refresh-profile-picture`),
+  update: (id: string, data: {
+    notes?: string;
+    tags?: string[];
+    birthday?: string;
+    company?: string;
+    jobTitle?: string;
+    location?: string;
+    relationshipType?: string;
+    contactFrequency?: string;
+    importance?: number;
+    customFields?: Record<string, any>;
+  }) =>
     api.patch<Contact>(`/contacts/${id}`, data),
 };
 
@@ -96,7 +110,7 @@ export interface Conversation {
 export const messagesApi = {
   getAll: (params?: { limit?: number; offset?: number }) =>
     api.get<{ messages: Message[] }>("/messages", { params }),
-  getConversations: (params?: { limit?: number; offset?: number }) =>
+  getConversations: (params?: { limit?: number; offset?: number; search?: string }) =>
     api.get<{
       conversations: Conversation[];
       hasMore: boolean;
@@ -113,7 +127,11 @@ export const messagesApi = {
   sendMessage: (
     contactId: string,
     data: { body?: string; mediaUrl?: string; mediaType?: "image" | "video" | "audio" | "document" }
-  ) => api.post<{ success: boolean }>("/messages/send", { contactId, ...data }),
+  ) =>
+    api.post<{ success: true; message: Message }>("/messages/send", {
+      contactId,
+      ...data,
+    }),
 };
 
 // Analytics (Phase 6 — backend: GET /api/analytics/*)
@@ -122,6 +140,11 @@ export const analyticsApi = {
     api.get<{ contacts?: Contact[] }>("/api/analytics/needs-attention").catch(() => ({ data: { contacts: [] } })),
   getPendingReplies: () =>
     api.get<{ contacts?: Contact[] }>("/api/analytics/pending-replies").catch(() => ({ data: { contacts: [] } })),
+};
+
+// Dashboard
+export const dashboardApi = {
+  getStats: () => api.get<DashboardStats>("/api/dashboard/stats"),
 };
 
 export default api;

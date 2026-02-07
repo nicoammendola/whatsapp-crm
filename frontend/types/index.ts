@@ -67,6 +67,7 @@ export type MessageType =
   | "STICKER"
   | "LOCATION"
   | "CONTACT"
+  | "POLL"
   | "OTHER";
 
 export interface Message {
@@ -85,6 +86,12 @@ export interface Message {
   senderJid?: string | null;
   senderName?: string | null;
   senderPhone?: string | null;
+  mentionedJids?: string[];
+  mentions?: Array<{
+    jid: string;
+    name: string | null;
+    pushName: string | null;
+  }>;
   reactions?: { emoji: string; fromMe: boolean }[];
   contact?: {
     id: string;

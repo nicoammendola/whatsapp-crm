@@ -47,6 +47,7 @@ model Contact {
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   whatsappId      String    // Format: 1234567890@s.whatsapp.net
+  alternativeJid  String?   // Alternative JID (e.g., @lid format for mention resolution)
   name            String?   // From WhatsApp profile
   pushName        String?   // Display name
   phoneNumber     String?
@@ -117,6 +118,9 @@ model Message {
   senderName  String?     // pushName at time of send
   senderPhone String?
 
+  // Mentions (@user tags in message text)
+  mentionedJids String[]  @default([])  // Array of JIDs mentioned in the message
+
   // Media
   hasMedia    Boolean   @default(false)
   mediaUrl    String?   // Local path or S3 URL
@@ -126,6 +130,9 @@ model Message {
   // Metadata
   isRead      Boolean   @default(false)
   isDeleted   Boolean   @default(false)
+
+  // Debug/Analysis: Store complete WAMessage from Baileys for debugging and future reprocessing
+  rawMessage  Json?     @db.JsonB
 
   reactions   Reaction[]
 
@@ -158,5 +165,6 @@ enum MessageType {
   STICKER
   LOCATION
   CONTACT
+  POLL
   OTHER
 }

@@ -3,6 +3,7 @@
 import type { Message } from "@/types";
 import type { Contact } from "@/types";
 import { format } from "date-fns";
+import { MessageTextWithMentions } from "./MessageTextWithMentions";
 
 function hashToColor(str: string): string {
   let n = 0;
@@ -119,6 +120,7 @@ function MediaContent({ message }: { message: Message }) {
       STICKER: "Sticker",
       LOCATION: "Location",
       CONTACT: "Contact card",
+      POLL: "Poll",
     };
     return (
       <span className="text-xs italic opacity-70">
@@ -128,6 +130,19 @@ function MediaContent({ message }: { message: Message }) {
   }
 
   return null;
+}
+
+function PollContent({ message }: { message: Message }) {
+  if (message.type !== "POLL") return null;
+  
+  return (
+    <div className="flex items-center gap-2">
+      <svg className="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+      </svg>
+      <span className="text-sm font-medium">Poll</span>
+    </div>
+  );
 }
 
 function QuotedBlock({
@@ -216,11 +231,16 @@ export function MessageBubble({
               fromMe={message.fromMe}
             />
           )}
-          {hasMediaContent && <MediaContent message={message} />}
+          {message.type === "POLL" && <PollContent message={message} />}
+          {hasMediaContent && message.type !== "POLL" && <MediaContent message={message} />}
           {body && (
-            <p className="whitespace-pre-wrap break-words text-sm">{body}</p>
+            <MessageTextWithMentions
+              body={body}
+              mentions={message.mentions}
+              fromMe={message.fromMe}
+            />
           )}
-          {!body && !hasMediaContent && (
+          {!body && !hasMediaContent && message.type !== "POLL" && (
             <p className="whitespace-pre-wrap break-words text-sm italic opacity-70">
               {hasQuoted ? "—" : "(empty)"}
             </p>

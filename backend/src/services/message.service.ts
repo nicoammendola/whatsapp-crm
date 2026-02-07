@@ -54,12 +54,15 @@ export class MessageService {
       if (messageType === 'OTHER') {
           const typeKey = getContentType(content);
           if (typeKey === 'reactionMessage') return;
+          // Skip poll votes/updates - they're encrypted and don't add CRM value
+          if (typeKey === 'pollUpdateMessage') return;
       }
 
       const contact = await contactService.getOrCreateContact(userId, normalizedRemoteJid);
 
       const body = this.extractMessageBody(content);
       const { quotedContent, quotedMessageId } = await this.extractQuoted(content, userId, normalizedRemoteJid);
+      const mentionedJids = this.extractMentions(content);
 
       // Group sender identity
       let senderJid: string | null = null;
@@ -70,6 +73,25 @@ export class MessageService {
         if (participant) {
           senderJid = jidNormalizedUser(participant);
           senderName = waMessage.pushName ?? null;
+
+          // Create or update contact for group participant so mentions can be resolved
+          // Store the @s.whatsapp.net version as primary, and @lid as alternative
+          const participantAlt = (waMessage.key as any).participantAlt;
+          if (participantAlt && senderJid) {
+            // participantAlt is the real phone number (@s.whatsapp.net)
+            // senderJid is the @lid version (used in mentions)
+            await contactService.upsertContact(userId, {
+              whatsappId: participantAlt,
+              alternativeJid: senderJid,
+              pushName: senderName || undefined,
+            });
+          } else if (senderJid) {
+            // Fallback if no participantAlt
+            await contactService.upsertContact(userId, {
+              whatsappId: senderJid,
+              pushName: senderName || undefined,
+            });
+          }
         } else {
             console.warn(`${LOG_PREFIX} Group message from ${remoteJid} has no participant`, waMessage.key);
         }
@@ -96,6 +118,8 @@ export class MessageService {
           senderJid,
           senderName,
           senderPhone,
+          mentionedJids,
+          rawMessage: waMessage as any, // Store complete WAMessage for debugging and analysis
         },
       });
 
@@ -140,37 +164,34 @@ export class MessageService {
     if (!content || typeof content !== 'object') return { quotedContent: null, quotedMessageId: null } as const;
 
     let contextInfo: { quotedMessage?: { conversation?: string; extendedTextMessage?: { text?: string } }; stanzaId?: string } | undefined;
-    let quotedText: string | null = null;
 
     if (content.extendedTextMessage?.contextInfo) {
       contextInfo = content.extendedTextMessage.contextInfo as unknown as typeof contextInfo;
-      quotedText = content.extendedTextMessage.text ?? null;
     }
-    // Also check other message types that can contain text/caption + quote
+    // Also check other message types that can contain contextInfo with quotes
     if (!contextInfo && content.imageMessage?.contextInfo) {
       contextInfo = content.imageMessage.contextInfo as unknown as typeof contextInfo;
-      quotedText = content.imageMessage.caption ?? '[Image]';
     }
     if (!contextInfo && content.videoMessage?.contextInfo) {
       contextInfo = content.videoMessage.contextInfo as unknown as typeof contextInfo;
-      quotedText = content.videoMessage.caption ?? '[Video]';
     }
     if (!contextInfo && content.documentMessage?.contextInfo) {
       contextInfo = content.documentMessage.contextInfo as unknown as typeof contextInfo;
-      quotedText = content.documentMessage.caption ?? '[Document]';
-    }
-    if (!contextInfo && content.conversation) {
-        // Plain text usually doesn't have contextInfo, but if normalized from extendedText it might
     }
 
     if (!contextInfo) return { quotedContent: null, quotedMessageId: null } as const;
+
+    // Only treat as a quote if contextInfo actually has quote-related fields
+    // contextInfo can exist for other reasons (mentions, expiration, statusSourceType, etc.)
+    const hasQuoteData = contextInfo.quotedMessage || contextInfo.stanzaId;
+    if (!hasQuoteData) return { quotedContent: null, quotedMessageId: null } as const;
 
     const quotedMsg = contextInfo.quotedMessage;
     const quotedContent = quotedMsg
       ? (typeof quotedMsg.conversation === 'string'
           ? quotedMsg.conversation
           : quotedMsg.extendedTextMessage?.text ?? '[Media]')
-      : quotedText ?? null;
+      : null;
 
     let quotedMessageId: string | null = null;
     const stanzaId = contextInfo.stanzaId;
@@ -183,6 +204,95 @@ export class MessageService {
     }
 
     return { quotedContent, quotedMessageId };
+  }
+
+  private extractMentions(
+    content: ReturnType<typeof normalizeMessageContent>
+  ): string[] {
+    if (!content || typeof content !== 'object') return [];
+
+    // Check extendedTextMessage for mentions (most common)
+    if (content.extendedTextMessage?.contextInfo?.mentionedJid) {
+      const mentioned = content.extendedTextMessage.contextInfo.mentionedJid;
+      if (Array.isArray(mentioned)) {
+        return mentioned.map(jid => jidNormalizedUser(jid as string)).filter(Boolean);
+      }
+    }
+
+    // Check other message types that can have contextInfo
+    const messageTypes = [
+      content.imageMessage,
+      content.videoMessage,
+      content.documentMessage
+    ];
+
+    for (const msgType of messageTypes) {
+      if (msgType?.contextInfo?.mentionedJid) {
+        const mentioned = msgType.contextInfo.mentionedJid;
+        if (Array.isArray(mentioned)) {
+          return mentioned.map(jid => jidNormalizedUser(jid as string)).filter(Boolean);
+        }
+      }
+    }
+
+    return [];
+  }
+
+  private async enrichMessagesWithMentions<T extends { mentionedJids: string[] }>(
+    userId: string,
+    messages: T[]
+  ): Promise<(T & { mentions?: Array<{ jid: string; name: string | null; pushName: string | null }> })[]> {
+    // Collect all unique mentioned JIDs from all messages
+    const allMentionedJids = new Set<string>();
+    messages.forEach(msg => {
+      msg.mentionedJids?.forEach(jid => allMentionedJids.add(jid));
+    });
+
+    if (allMentionedJids.size === 0) {
+      return messages.map(msg => ({ ...msg, mentions: [] }));
+    }
+
+    const mentionedJidsArray = Array.from(allMentionedJids);
+
+    // Fetch contacts by either whatsappId OR alternativeJid matching the mentioned JIDs
+    const mentionedContacts = await prisma.contact.findMany({
+      where: {
+        userId,
+        OR: [
+          { whatsappId: { in: mentionedJidsArray } },
+          { alternativeJid: { in: mentionedJidsArray } },
+        ],
+      },
+      select: {
+        whatsappId: true,
+        alternativeJid: true,
+        name: true,
+        pushName: true,
+      },
+    });
+
+    // Create a map for quick lookup by BOTH whatsappId and alternativeJid
+    const contactMap = new Map<string, { name: string | null; pushName: string | null }>();
+    
+    mentionedContacts.forEach(contact => {
+      const info = { name: contact.name, pushName: contact.pushName };
+      // Map by primary whatsappId
+      contactMap.set(contact.whatsappId, info);
+      // Also map by alternativeJid if present
+      if (contact.alternativeJid) {
+        contactMap.set(contact.alternativeJid, info);
+      }
+    });
+
+    // Enrich each message with mention data
+    return messages.map(msg => ({
+      ...msg,
+      mentions: msg.mentionedJids?.map(jid => ({
+        jid,
+        name: contactMap.get(jid)?.name ?? null,
+        pushName: contactMap.get(jid)?.pushName ?? null,
+      })) ?? [],
+    }));
   }
 
   async handleReaction(
@@ -299,6 +409,12 @@ export class MessageService {
     if (content.videoMessage?.caption) return content.videoMessage.caption;
     if (content.documentMessage?.caption) return content.documentMessage.caption;
 
+    // Extract poll question from any poll version
+    const pollMsg = content.pollCreationMessage || content.pollCreationMessageV2 || content.pollCreationMessageV3;
+    if (pollMsg && typeof pollMsg === 'object' && 'name' in pollMsg) {
+      return (pollMsg as any).name ?? null;
+    }
+
     return null;
   }
 
@@ -313,6 +429,7 @@ export class MessageService {
     | 'STICKER'
     | 'LOCATION'
     | 'CONTACT'
+    | 'POLL'
     | 'OTHER' {
     if (!content || typeof content !== 'object') return 'TEXT';
 
@@ -327,6 +444,11 @@ export class MessageService {
     if (type === 'stickerMessage') return 'STICKER';
     if (type === 'locationMessage' || type === 'liveLocationMessage') return 'LOCATION';
     if (type === 'contactMessage') return 'CONTACT';
+    
+    // Detect polls (all versions)
+    if (type === 'pollCreationMessage' || type === 'pollCreationMessageV2' || type === 'pollCreationMessageV3') {
+      return 'POLL';
+    }
 
     return 'TEXT';
   }
@@ -337,7 +459,7 @@ export class MessageService {
     limit: number = 50,
     offset: number = 0
   ) {
-    return prisma.message.findMany({
+    const messages = await prisma.message.findMany({
       where: { userId, contactId },
       orderBy: { timestamp: 'desc' },
       take: limit,
@@ -359,6 +481,9 @@ export class MessageService {
         },
       },
     });
+
+    // Enrich messages with mention contact information
+    return this.enrichMessagesWithMentions(userId, messages);
   }
 
   async getConversations(
@@ -444,7 +569,7 @@ export class MessageService {
   }
 
   async getMessageById(userId: string, messageId: string) {
-    return prisma.message.findFirst({
+    const message = await prisma.message.findFirst({
       where: { userId, id: messageId },
       include: {
         contact: {
@@ -463,6 +588,11 @@ export class MessageService {
         },
       },
     });
+
+    if (!message) return null;
+
+    const enriched = await this.enrichMessagesWithMentions(userId, [message]);
+    return enriched[0];
   }
 
   async markAsRead(userId: string, contactId: string): Promise<void> {
@@ -482,7 +612,7 @@ export class MessageService {
     limit: number = 100,
     offset: number = 0
   ) {
-    return prisma.message.findMany({
+    const messages = await prisma.message.findMany({
       where: { userId },
       orderBy: { timestamp: 'desc' },
       take: limit,
@@ -504,6 +634,8 @@ export class MessageService {
         },
       },
     });
+
+    return this.enrichMessagesWithMentions(userId, messages);
   }
 }
 

@@ -30,6 +30,7 @@ export class ContactService {
     userId: string,
     data: {
       whatsappId: string;
+      alternativeJid?: string;
       name?: string;
       pushName?: string;
       phoneNumber?: string;
@@ -37,6 +38,7 @@ export class ContactService {
     }
   ) {
     const updateData: Record<string, unknown> = {};
+    if (data.alternativeJid !== undefined) updateData.alternativeJid = data.alternativeJid;
     if (data.name !== undefined) updateData.name = data.name;
     if (data.pushName !== undefined) updateData.pushName = data.pushName;
     if (data.phoneNumber !== undefined) updateData.phoneNumber = data.phoneNumber;
@@ -46,6 +48,7 @@ export class ContactService {
     const createData = {
       userId,
       whatsappId: data.whatsappId,
+      alternativeJid: data.alternativeJid,
       name: data.name,
       pushName: data.pushName,
       phoneNumber: data.phoneNumber,

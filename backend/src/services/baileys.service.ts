@@ -14,6 +14,7 @@ import { prisma } from '../config/database';
 import { messageService } from './message.service';
 import { contactService } from './contact.service';
 import { emitToUser } from './socket.service';
+import { connectionManager } from './connection-manager.service';
 
 const LOG_PREFIX = '[Baileys]';
 const activeConnections = new Map<string, WASocket>();
@@ -127,22 +128,43 @@ export class BaileysService {
           const error = lastDisconnect?.error as Boom | undefined;
           const statusCode = error?.output?.statusCode;
           const message = error?.message;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401;
+          const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+          const isUserActive = connectionManager.isUserActive(userId);
+          
+          // Only auto-reconnect if:
+          // 1. Not logged out (session is still valid)
+          // 2. User is still active (has sent heartbeat recently)
+          // This prevents auto-reconnect when we intentionally disconnect (user closed CRM)
+          const shouldReconnect = !isLoggedOut && isUserActive;
+          
           log(
             userId,
-            `connection close; statusCode=${statusCode} message=${message ?? 'n/a'} shouldReconnect=${shouldReconnect}`
+            `connection close; statusCode=${statusCode} message=${message ?? 'n/a'} isUserActive=${isUserActive} shouldReconnect=${shouldReconnect}`
           );
 
           activeConnections.delete(userId);
 
           if (shouldReconnect) {
-            // After pairing code auth, Baileys disconnects and needs to reconnect
-            log(userId, 'reconnecting after pairing auth...');
+            // After pairing code auth, Baileys disconnects and needs to reconnect (if user still active)
+            log(userId, 'reconnecting after pairing auth... (user still active)');
             // Re-initialize with QR flow (it will use existing creds, no new QR needed)
             void this.initializeWhatsApp(userId);
-          } else {
+          } else if (isLoggedOut) {
+            // Session invalid - clear it
             lastConnectionErrors.set(userId, { statusCode, message });
             await this.resetSession(userId, sessionPath);
+            try {
+              await prisma.whatsAppSession.upsert({
+                where: { userId },
+                update: { isConnected: false, qrCode: null },
+                create: { userId, isConnected: false, qrCode: null },
+              });
+            } catch (err) {
+              console.error(`${LOG_PREFIX} Failed to update session on close:`, err);
+            }
+          } else {
+            // User inactive - session preserved, will reconnect when user opens CRM again
+            log(userId, 'connection closed - session preserved, will resume when user active');
             try {
               await prisma.whatsAppSession.upsert({
                 where: { userId },
@@ -286,21 +308,42 @@ export class BaileysService {
           const error = lastDisconnect?.error as Boom | undefined;
           const statusCode = error?.output?.statusCode;
           const message = error?.message;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 401;
+          const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+          const isUserActive = connectionManager.isUserActive(userId);
+          
+          // Only auto-reconnect if:
+          // 1. Not logged out (session is still valid)
+          // 2. User is still active (has sent heartbeat recently)
+          // This prevents auto-reconnect when we intentionally disconnect (user closed CRM)
+          const shouldReconnect = !isLoggedOut && isUserActive;
+          
           log(
             userId,
-            `connection close; statusCode=${statusCode} message=${message ?? 'n/a'} shouldReconnect=${shouldReconnect}`
+            `connection close; statusCode=${statusCode} message=${message ?? 'n/a'} isUserActive=${isUserActive} shouldReconnect=${shouldReconnect}`
           );
 
           activeConnections.delete(userId);
 
           if (shouldReconnect) {
-            // Reconnect (e.g. after QR scan auth, server restart request)
-            log(userId, 'reconnecting...');
+            // Reconnect (e.g. after network error, server restart) - user is still active
+            log(userId, 'reconnecting... (user still active)');
             void this.initializeWhatsApp(userId);
-          } else {
+          } else if (isLoggedOut) {
+            // Session invalid - clear it
             lastConnectionErrors.set(userId, { statusCode, message });
             await this.resetSession(userId, sessionPath);
+            try {
+              await prisma.whatsAppSession.upsert({
+                where: { userId },
+                update: { isConnected: false, qrCode: null },
+                create: { userId, isConnected: false, qrCode: null },
+              });
+            } catch (err) {
+              console.error(`${LOG_PREFIX} Failed to update session on close:`, err);
+            }
+          } else {
+            // User inactive - session preserved, will reconnect when user opens CRM again
+            log(userId, 'connection closed - session preserved, will resume when user active');
             try {
               await prisma.whatsAppSession.upsert({
                 where: { userId },
@@ -540,12 +583,20 @@ export class BaileysService {
     const sock = activeConnections.get(userId);
     if (sock) {
       try {
-        await sock.logout();
+        // Gracefully close the socket connection WITHOUT logging out
+        // This preserves the auth state so the session can be resumed later
+        // Similar to closing WhatsApp Desktop - connection closes but session remains valid
+        // Use end() if available, otherwise close the WebSocket directly
+        if (typeof (sock as any).end === 'function') {
+          (sock as any).end();
+        } else if (sock.ws && typeof sock.ws.close === 'function') {
+          sock.ws.close();
+        }
       } catch (err) {
-        console.error(`${LOG_PREFIX} Logout error (continuing cleanup):`, err);
+        console.error(`${LOG_PREFIX} Socket close error (continuing cleanup):`, err);
       }
       activeConnections.delete(userId);
-      log(userId, 'disconnected');
+      log(userId, 'disconnected gracefully - session preserved for resume');
     }
     
     // Clean up sync tracking
@@ -556,6 +607,7 @@ export class BaileysService {
     syncStatus.delete(userId);
     
     try {
+      // Mark as disconnected but keep qrCode null (we don't need QR if session is valid)
       await prisma.whatsAppSession.upsert({
         where: { userId },
         update: { isConnected: false, qrCode: null },

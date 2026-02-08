@@ -73,6 +73,18 @@ export class BaileysService {
     log(userId, 'clearing session for fresh pairing');
     await this.resetSession(userId, sessionPath);
 
+    // Get latest message timestamp to filter history sync (even after pairing, we may have existing messages)
+    const latestMessageTimestamp = await messageService.getLatestMessageTimestamp(userId);
+    const lastSyncTimestamp = latestMessageTimestamp 
+      ? Math.floor(latestMessageTimestamp.getTime() / 1000) // Convert to Unix seconds
+      : null;
+    
+    if (lastSyncTimestamp) {
+      log(userId, `latest message timestamp: ${new Date(lastSyncTimestamp * 1000).toISOString()} - will only sync newer messages`);
+    } else {
+      log(userId, 'no existing messages - will sync all history');
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
     const sock = makeWASocket({
@@ -215,7 +227,7 @@ export class BaileysService {
       });
 
       sock.ev.on('creds.update', saveCreds);
-      this.setupMessageHandlers(userId, sock);
+      this.setupMessageHandlers(userId, sock, lastSyncTimestamp);
     });
   }
 
@@ -407,11 +419,11 @@ export class BaileysService {
       });
 
       sock.ev.on('creds.update', saveCreds);
-      this.setupMessageHandlers(userId, sock);
+      this.setupMessageHandlers(userId, sock, lastSyncTimestamp);
     });
   }
 
-  private setupMessageHandlers(userId: string, sock: WASocket): void {
+  private setupMessageHandlers(userId: string, sock: WASocket, lastSyncTimestamp: number | null): void {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       // Process both real-time ('notify') and catch-up ('append') messages
       if (type === 'notify' || type === 'append') {

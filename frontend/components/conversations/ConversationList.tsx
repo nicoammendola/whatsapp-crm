@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { messagesApi } from "@/lib/api";
+import { useSocket } from "@/lib/socket";
 import type { Conversation } from "@/lib/api";
 import type { Contact } from "@/types";
 import { Input } from "@/components/ui/Input";
@@ -25,6 +26,7 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const socket = useSocket();
 
   const loadConversations = async (append: boolean) => {
     if (loadingRef.current) return;
@@ -57,6 +59,27 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
   useEffect(() => {
     loadConversations(false);
   }, [currentSearch]);
+
+  // Listen for new messages via socket and refresh conversation list
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewMessage = (messageData: any) => {
+      // Refresh conversation list when any new message arrives
+      // This ensures the list stays up-to-date and conversations are re-sorted
+      // (conversations with newest messages should be on top)
+      // Backend already sorts by last message timestamp DESC
+      if (!loadingRef.current && !loading && !loadingMore) {
+        loadConversations(false);
+      }
+    };
+
+    socket.on("new_message", handleNewMessage);
+
+    return () => {
+      socket.off("new_message", handleNewMessage);
+    };
+  }, [socket, loading, loadingMore]);
 
   // Search with debounce
   useEffect(() => {

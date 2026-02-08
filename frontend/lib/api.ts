@@ -75,6 +75,8 @@ export const whatsappApi = {
     api.post<WhatsAppPairResponse>("/whatsapp/pair", { phoneNumber }),
   getStatus: () => api.get<WhatsAppStatusResponse>("/whatsapp/status"),
   disconnect: () => api.post<{ success: boolean; message?: string }>("/whatsapp/disconnect"),
+  heartbeat: () => api.post<{ success: boolean; connected: boolean; message?: string }>("/whatsapp/heartbeat"),
+  disconnectClient: () => api.post<{ success: boolean; message?: string }>("/whatsapp/disconnect-client"),
 };
 
 // Contacts

@@ -56,10 +56,18 @@ export function DashboardHome() {
       }, 2000);
     };
 
+    const handleSyncComplete = (data: { messageCount: number; duration: number }) => {
+      console.log(`WhatsApp sync complete: ${data.messageCount} messages synced in ${data.duration}ms`);
+      // Refresh dashboard analytics after sync completes
+      loadDashboardData();
+    };
+
     socket.on("new_message", handleNewMessage);
+    socket.on("whatsapp_sync_complete", handleSyncComplete);
 
     return () => {
       socket.off("new_message", handleNewMessage);
+      socket.off("whatsapp_sync_complete", handleSyncComplete);
       if (debounceTimeout) clearTimeout(debounceTimeout);
     };
   }, [socket, loadDashboardData]);

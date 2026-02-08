@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { messagesApi } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
+import { useSocket } from "@/lib/socket";
 import { supabase } from "@/lib/supabase";
 import type { Message } from "@/types";
 import type { Contact } from "@/types";
@@ -27,6 +28,7 @@ export function MessageThread({
   fullHeight?: boolean;
 }) {
   const userId = useAuthStore((s) => s.user?.id);
+  const socket = useSocket();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -109,7 +111,51 @@ export function MessageThread({
     loadInitial();
   }, [loadInitial]);
 
-  // Polling for new messages (3s interval)
+  // Listen for real-time messages via socket
+  useEffect(() => {
+    if (!socket || !contactId || loading) return;
+
+    const handleNewMessage = (messageData: Message) => {
+      // Only process messages for the current contact
+      if (messageData.contactId !== contactId) {
+        return;
+      }
+
+      // Check if message already exists
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.id === messageData.id);
+        if (exists) {
+          return prev;
+        }
+
+        // Add new message and sort by timestamp
+        const updated = [...prev, messageData].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+
+        // Auto-scroll to bottom if user is near bottom
+        setTimeout(() => {
+          if (scrollContainerRef.current) {
+            const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+            const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+            if (isAtBottom) {
+              bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+            }
+          }
+        }, 50);
+
+        return updated;
+      });
+    };
+
+    socket.on("new_message", handleNewMessage);
+
+    return () => {
+      socket.off("new_message", handleNewMessage);
+    };
+  }, [socket, contactId, loading]);
+
+  // Polling for new messages (3s interval) - fallback if socket fails
   useEffect(() => {
     if (!contactId || loading) return;
     

@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { baileysService } from '../services/baileys.service';
+import { connectionManager } from '../services/connection-manager.service';
 import { prisma } from '../config/database';
 
 export async function initializeConnection(req: AuthRequest, res: Response): Promise<void> {
@@ -95,5 +96,39 @@ export async function disconnect(req: AuthRequest, res: Response): Promise<void>
   } catch (error) {
     console.error('Disconnect error:', error);
     res.status(500).json({ error: 'Failed to disconnect' });
+  }
+}
+
+export async function heartbeat(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+
+    // Record heartbeat (will connect if needed)
+    connectionManager.recordHeartbeat(userId);
+
+    // Check connection status
+    const isConnected = baileysService.isConnected(userId);
+
+    res.json({
+      success: true,
+      connected: isConnected,
+      message: isConnected ? 'Connected to WhatsApp' : 'Connecting...',
+    });
+  } catch (error) {
+    console.error('Heartbeat error:', error);
+    res.status(500).json({ error: 'Failed to process heartbeat' });
+  }
+}
+
+export async function disconnectClient(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    // This endpoint is called when user closes browser
+    // The timeout in connection manager will handle disconnection
+    // This is just for explicit disconnection if needed
+    res.json({ success: true, message: 'Disconnect signal received' });
+  } catch (error) {
+    console.error('Disconnect client error:', error);
+    res.status(500).json({ error: 'Failed to process disconnect signal' });
   }
 }

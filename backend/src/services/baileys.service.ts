@@ -13,6 +13,7 @@ import { existsSync } from 'fs';
 import { prisma } from '../config/database';
 import { messageService } from './message.service';
 import { contactService } from './contact.service';
+import { emitToUser } from './socket.service';
 
 const LOG_PREFIX = '[Baileys]';
 const activeConnections = new Map<string, WASocket>();
@@ -22,6 +23,13 @@ const lastConnectionErrors = new Map<
 >();
 // Track whether we're currently trying to connect (prevent duplicate inits)
 const pendingInits = new Set<string>();
+// Track sync status per user
+const syncStatus = new Map<string, {
+  syncing: boolean;
+  messageCount: number;
+  startTime: number;
+  syncTimeout?: NodeJS.Timeout;
+}>();
 
 function log(userId: string, message: string): void {
   console.log(`${LOG_PREFIX} userId=${userId} ${message}`);
@@ -177,6 +185,9 @@ export class BaileysService {
           clearTimeout(timeout);
           done(null);
           await this.syncContacts(userId, sock);
+          
+          // Start tracking sync - will complete when history sync finishes or after timeout
+          this.startSyncTracking(userId);
         }
       });
 
@@ -190,14 +201,12 @@ export class BaileysService {
       where: { isConnected: true },
     });
 
-    console.log(`${LOG_PREFIX} Restoring ${sessions.length} sessions...`);
-
-    for (const session of sessions) {
-      // Start initialization in background
-      this.initializeWhatsApp(session.userId).catch((err) => {
-        console.error(`${LOG_PREFIX} Failed to restore session for ${session.userId}:`, err);
-      });
-    }
+    console.log(`${LOG_PREFIX} Found ${sessions.length} sessions in database`);
+    console.log(`${LOG_PREFIX} Sessions will connect automatically when users open the CRM (via heartbeat)`);
+    
+    // Don't auto-connect on startup - wait for frontend heartbeats
+    // This mimics WhatsApp Desktop behavior where connections are user-initiated
+    // Phone notifications will work until users open the CRM
   }
 
   async initializeWhatsApp(userId: string): Promise<{ qr: string | null }> {
@@ -334,6 +343,9 @@ export class BaileysService {
           clearTimeout(timeout);
           done(null);
           await this.syncContacts(userId, sock);
+          
+          // Start tracking sync - will complete when history sync finishes or after timeout
+          this.startSyncTracking(userId);
         }
       });
 
@@ -372,8 +384,14 @@ export class BaileysService {
     });
 
     // Handle history sync (delivered after connection for historical messages)
-    sock.ev.on('messaging-history.set', async ({ messages: historyMessages, contacts: historyContacts }) => {
-      log(userId, `history sync received: ${historyMessages?.length ?? 0} messages, ${historyContacts?.length ?? 0} contacts`);
+    sock.ev.on('messaging-history.set', async ({ messages: historyMessages, contacts: historyContacts, isLatest }) => {
+      log(userId, `history sync received: ${historyMessages?.length ?? 0} messages, ${historyContacts?.length ?? 0} contacts, isLatest=${isLatest ?? false}`);
+
+      // Track sync progress
+      const sync = syncStatus.get(userId);
+      if (sync) {
+        sync.messageCount += historyMessages?.length ?? 0;
+      }
 
       if (historyContacts) {
         for (const contact of historyContacts) {
@@ -420,6 +438,12 @@ export class BaileysService {
           }
         }
         log(userId, `history sync processed ${filtered.length} messages`);
+      }
+
+      // If this is the latest sync chunk, mark sync as complete
+      if (isLatest === true) {
+        log(userId, `history sync complete - ${sync?.messageCount ?? 0} total messages synced`);
+        this.completeSync(userId);
       }
     });
 
@@ -523,6 +547,14 @@ export class BaileysService {
       activeConnections.delete(userId);
       log(userId, 'disconnected');
     }
+    
+    // Clean up sync tracking
+    const sync = syncStatus.get(userId);
+    if (sync?.syncTimeout) {
+      clearTimeout(sync.syncTimeout);
+    }
+    syncStatus.delete(userId);
+    
     try {
       await prisma.whatsAppSession.upsert({
         where: { userId },
@@ -544,6 +576,81 @@ export class BaileysService {
 
   getLastError(userId: string): { statusCode?: number; message?: string } | null {
     return lastConnectionErrors.get(userId) ?? null;
+  }
+
+  /**
+   * Start tracking sync status for a user.
+   * Called when connection opens.
+   */
+  private startSyncTracking(userId: string): void {
+    // Clear any existing sync tracking
+    const existing = syncStatus.get(userId);
+    if (existing?.syncTimeout) {
+      clearTimeout(existing.syncTimeout);
+    }
+
+    // Start new sync tracking
+    syncStatus.set(userId, {
+      syncing: true,
+      messageCount: 0,
+      startTime: Date.now(),
+    });
+
+    log(userId, 'sync tracking started - waiting for history sync...');
+
+    // Set a timeout - if no history sync happens within 10 seconds, assume sync is complete
+    // This handles the case where user was already synced and no history sync event fires
+    const syncTimeout = setTimeout(() => {
+      const sync = syncStatus.get(userId);
+      if (sync && sync.syncing) {
+        log(userId, 'sync timeout - no history sync received, assuming already synced');
+        this.completeSync(userId);
+      }
+    }, 10000); // 10 seconds
+
+    const sync = syncStatus.get(userId);
+    if (sync) {
+      sync.syncTimeout = syncTimeout;
+    }
+  }
+
+  /**
+   * Mark sync as complete and emit event to frontend.
+   * Called when history sync finishes or timeout occurs.
+   */
+  private completeSync(userId: string): void {
+    const sync = syncStatus.get(userId);
+    if (!sync || !sync.syncing) {
+      return;
+    }
+
+    // Clear timeout if exists
+    if (sync.syncTimeout) {
+      clearTimeout(sync.syncTimeout);
+    }
+
+    const duration = Date.now() - sync.startTime;
+    log(userId, `sync complete - ${sync.messageCount} messages synced in ${duration}ms`);
+
+    // Mark sync as complete
+    sync.syncing = false;
+    sync.syncTimeout = undefined;
+
+    // Emit socket event to notify frontend
+    try {
+      emitToUser(userId, 'whatsapp_sync_complete', {
+        messageCount: sync.messageCount,
+        duration,
+      });
+      log(userId, 'emitted sync_complete event to frontend');
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Failed to emit sync_complete event:`, err);
+    }
+
+    // Clean up after a short delay
+    setTimeout(() => {
+      syncStatus.delete(userId);
+    }, 5000);
   }
 
   private async resetSession(userId: string, sessionPath: string): Promise<void> {

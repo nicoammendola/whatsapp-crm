@@ -79,6 +79,7 @@ export class BaileysService {
       auth: state,
       printQRInTerminal: false,
       logger: P({ level: 'warn' }),
+      syncFullHistory: false, // Only sync recent messages, not full history
       getMessage: async (key) => {
         // Baileys needs this to retry failed messages
         if (!key.id) return undefined;
@@ -258,10 +259,23 @@ export class BaileysService {
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
+    // Get latest message timestamp to filter history sync
+    const latestMessageTimestamp = await messageService.getLatestMessageTimestamp(userId);
+    const lastSyncTimestamp = latestMessageTimestamp 
+      ? Math.floor(latestMessageTimestamp.getTime() / 1000) // Convert to Unix seconds
+      : null;
+    
+    if (lastSyncTimestamp) {
+      log(userId, `latest message timestamp: ${new Date(lastSyncTimestamp * 1000).toISOString()} - will only sync newer messages`);
+    } else {
+      log(userId, 'no existing messages - will sync all history');
+    }
+
     const sock = makeWASocket({
       auth: state,
       printQRInTerminal: false,
       logger: P({ level: 'warn' }),
+      syncFullHistory: false, // Only sync recent messages, not full history
       getMessage: async (key) => {
         if (!key.id) return undefined;
         const msg = await prisma.message.findUnique({ where: { whatsappId: key.id } });
@@ -430,10 +444,30 @@ export class BaileysService {
     sock.ev.on('messaging-history.set', async ({ messages: historyMessages, contacts: historyContacts, isLatest }) => {
       log(userId, `history sync received: ${historyMessages?.length ?? 0} messages, ${historyContacts?.length ?? 0} contacts, isLatest=${isLatest ?? false}`);
 
-      // Track sync progress
+      // Filter messages to only include those newer than our latest message
+      let messagesToProcess = historyMessages ?? [];
+      if (lastSyncTimestamp && messagesToProcess.length > 0) {
+        const beforeCount = messagesToProcess.length;
+        messagesToProcess = messagesToProcess.filter((msg) => {
+          // Message timestamp is in Unix seconds (can be number or Long)
+          const msgTimestamp = msg.messageTimestamp 
+            ? (typeof msg.messageTimestamp === 'number' 
+                ? msg.messageTimestamp 
+                : Number(msg.messageTimestamp))
+            : null;
+          if (!msgTimestamp) return true; // Include if no timestamp (shouldn't happen, but be safe)
+          return msgTimestamp > lastSyncTimestamp;
+        });
+        const filteredCount = beforeCount - messagesToProcess.length;
+        if (filteredCount > 0) {
+          log(userId, `filtered out ${filteredCount} old messages (already in database), processing ${messagesToProcess.length} new messages`);
+        }
+      }
+
+      // Track sync progress (only count new messages)
       const sync = syncStatus.get(userId);
       if (sync) {
-        sync.messageCount += historyMessages?.length ?? 0;
+        sync.messageCount += messagesToProcess.length;
       }
 
       if (historyContacts) {
@@ -458,9 +492,9 @@ export class BaileysService {
         }
       }
 
-      if (historyMessages) {
+      if (messagesToProcess.length > 0) {
         // Filter out status messages from history sync
-        const filtered = historyMessages.filter(
+        const filtered = messagesToProcess.filter(
           (msg) => !isStatusJid(msg.key?.remoteJid)
         );
         for (const msg of filtered) {
@@ -480,12 +514,14 @@ export class BaileysService {
             console.error(`${LOG_PREFIX} Error handling history message:`, err);
           }
         }
-        log(userId, `history sync processed ${filtered.length} messages`);
+        log(userId, `history sync processed ${filtered.length} new messages`);
+      } else {
+        log(userId, 'no new messages to process (all already in database)');
       }
 
       // If this is the latest sync chunk, mark sync as complete
       if (isLatest === true) {
-        log(userId, `history sync complete - ${sync?.messageCount ?? 0} total messages synced`);
+        log(userId, `history sync complete - ${sync?.messageCount ?? 0} new messages synced`);
         this.completeSync(userId);
       }
     });

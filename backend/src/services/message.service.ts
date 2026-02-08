@@ -637,6 +637,19 @@ export class MessageService {
 
     return this.enrichMessagesWithMentions(userId, messages);
   }
+
+  /**
+   * Get the latest message timestamp for a user.
+   * Returns null if user has no messages.
+   */
+  async getLatestMessageTimestamp(userId: string): Promise<Date | null> {
+    const latest = await prisma.message.findFirst({
+      where: { userId },
+      orderBy: { timestamp: 'desc' },
+      select: { timestamp: true },
+    });
+    return latest?.timestamp ?? null;
+  }
 }
 
 export const messageService = new MessageService();

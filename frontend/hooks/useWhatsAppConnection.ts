@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAuthStore } from "@/store/authStore";
-import { api } from "@/lib/api";
+import api from "@/lib/api";
 
 const HEARTBEAT_INTERVAL = 45000; // 45 seconds
 const INITIAL_HEARTBEAT_DELAY = 1000; // 1 second after mount

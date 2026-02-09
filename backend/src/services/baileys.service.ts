@@ -126,6 +126,10 @@ export class BaileysService {
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
+        if (connection) {
+          log(userId, `🔌 Connection update: ${connection}`);
+        }
+
         // Wait for QR event — this means the socket is registered and ready for pairing
         if (qr && !pairingCodeRequested) {
           pairingCodeRequested = true;
@@ -200,7 +204,12 @@ export class BaileysService {
           done(null);
         } else if (connection === 'open') {
           const phone = sock.user?.id?.split(':')[0] ?? null;
-          log(userId, `connected phone=${phone ?? 'n/a'}`);
+          const targetedSync = targetedContactSyncs.get(userId);
+          if (targetedSync) {
+            log(userId, `✅ Connected phone=${phone ?? 'n/a'} - TARGETED SYNC ACTIVE for ${targetedSync.contactJid}`);
+          } else {
+            log(userId, `connected phone=${phone ?? 'n/a'}`);
+          }
           lastConnectionErrors.delete(userId);
 
           try {
@@ -226,7 +235,14 @@ export class BaileysService {
           activeConnections.set(userId, sock);
           clearTimeout(timeout);
           done(null);
-          await this.syncContacts(userId, sock);
+          
+          const targetedSync = targetedContactSyncs.get(userId);
+          if (targetedSync) {
+            log(userId, `🎯 Skipping normal contact sync - TARGETED SYNC ACTIVE for ${targetedSync.contactJid}`);
+            log(userId, `🎯 Waiting for messaging-history.set events for ${targetedSync.contactJid}...`);
+          } else {
+            await this.syncContacts(userId, sock);
+          }
           
           // Start tracking sync - will complete when history sync finishes or after timeout
           this.startSyncTracking(userId);
@@ -418,7 +434,14 @@ export class BaileysService {
           activeConnections.set(userId, sock);
           clearTimeout(timeout);
           done(null);
-          await this.syncContacts(userId, sock);
+          
+          const targetedSync = targetedContactSyncs.get(userId);
+          if (targetedSync) {
+            log(userId, `🎯 Skipping normal contact sync - TARGETED SYNC ACTIVE for ${targetedSync.contactJid}`);
+            log(userId, `🎯 Waiting for messaging-history.set events for ${targetedSync.contactJid}...`);
+          } else {
+            await this.syncContacts(userId, sock);
+          }
           
           // Start tracking sync - will complete when history sync finishes or after timeout
           this.startSyncTracking(userId);
@@ -1035,8 +1058,9 @@ export class BaileysService {
   }
 
   /**
-   * Trigger a full history sync filtered to a specific contact.
-   * This will request WhatsApp to send all history, but we'll only process messages for this contact.
+   * Trigger a full history sync filtered to a specific contact by reconnecting.
+   * This will disconnect and reconnect WhatsApp to trigger a fresh history sync,
+   * but only process messages for the target contact.
    */
   async triggerTargetedHistorySync(userId: string, contactId: string): Promise<{ success: boolean }> {
     const sock = activeConnections.get(userId);
@@ -1053,8 +1077,9 @@ export class BaileysService {
 
     const jid = jidNormalizedUser(contact.whatsappId);
     log(userId, `🎯 TRIGGERING TARGETED HISTORY SYNC for contact ${contactId} (${jid})`);
+    log(userId, `🎯 Strategy: Temporarily reconnect to WhatsApp to trigger fresh history sync`);
 
-    // Set up targeted sync filter
+    // Set up targeted sync filter BEFORE reconnecting
     targetedContactSyncs.set(userId, {
       contactJid: jid,
       startTime: Date.now(),
@@ -1064,17 +1089,29 @@ export class BaileysService {
       }, 60000), // 60 second timeout
     });
 
-    log(userId, `🎯 Filter set up for ${jid} - will only process messages from this contact`);
+    log(userId, `🎯 Filter set up for ${jid} - will only process messages from this contact during reconnection`);
 
     try {
-      // Use Baileys' resyncAppState to trigger a history sync
-      // This will cause WhatsApp to send messaging-history.set events
-      // Our handler will filter to only process messages for the target contact
-      log(userId, `🎯 Calling resyncAppState to trigger history sync...`);
-      await sock.resyncAppState(['regular_high', 'regular_low', 'regular'], false);
+      // Gracefully close current connection (doesn't logout, just closes socket)
+      log(userId, `🔌 Closing current connection to trigger reconnection...`);
+      if (typeof (sock as any).end === 'function') {
+        (sock as any).end();
+      } else if (typeof (sock as any).ws?.close === 'function') {
+        (sock as any).ws.close();
+      }
       
-      log(userId, `✅ resyncAppState called successfully - history will arrive via messaging-history.set events filtered to ${jid}`);
-      log(userId, `🎯 Waiting for messaging-history.set events... (timeout in 60s)`);
+      // Remove from active connections
+      activeConnections.delete(userId);
+      
+      // Wait a moment for cleanup
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Reconnect - this will trigger a fresh history sync
+      log(userId, `🔄 Reconnecting to WhatsApp to trigger history sync...`);
+      await this.initializeWhatsApp(userId);
+      
+      log(userId, `✅ Reconnection initiated - history sync will arrive via messaging-history.set events filtered to ${jid}`);
+      log(userId, `🎯 Filter active - only messages for ${jid} will be processed`);
       
       // Return success - messages will arrive asynchronously via events
       return { success: true };
@@ -1085,7 +1122,7 @@ export class BaileysService {
         clearTimeout(sync.timeout);
       }
       targetedContactSyncs.delete(userId);
-      log(userId, `❌ resyncAppState failed: ${err.message || 'Unknown error'}`);
+      log(userId, `❌ Reconnection failed: ${err.message || 'Unknown error'}`);
       console.error(`${LOG_PREFIX} Error triggering targeted sync for ${jid}:`, err);
       throw new Error(`Failed to trigger history sync: ${err.message || 'Unknown error'}`);
     }

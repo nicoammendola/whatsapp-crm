@@ -73,11 +73,11 @@ export function MessageThread({
           // Sync messages from WhatsApp
           await messagesApi.syncContactMessages(contactId, 100);
           
-          console.log('✅ Sync request sent, waiting for messages to arrive via events...');
+          console.log('✅ Sync request sent, waiting for reconnection and history sync...');
           
-          // Wait longer for messages to be processed via events
-          // Targeted sync triggers a full history sync which may take a few seconds
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          // Wait longer for reconnection and messages to be processed via events
+          // Targeted sync triggers a reconnection which may take 5-10 seconds
+          await new Promise(resolve => setTimeout(resolve, 8000));
           
           console.log('⏰ Wait complete, reloading messages...');
           

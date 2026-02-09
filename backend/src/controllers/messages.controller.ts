@@ -120,11 +120,6 @@ export async function syncContactMessages(req: AuthRequest, res: Response): Prom
       res.status(503).json({ error: error.message });
     } else if (error.message === 'Contact not found or invalid') {
       res.status(404).json({ error: error.message });
-    } else if (error.message === 'NO_HISTORY_AVAILABLE') {
-      res.status(404).json({ 
-        error: 'No message history available',
-        message: 'Message history is only synced during initial WhatsApp connection. New messages will appear automatically.'
-      });
     } else {
       res.status(500).json({ error: error.message || 'Failed to sync messages' });
     }

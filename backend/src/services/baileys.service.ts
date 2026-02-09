@@ -338,6 +338,10 @@ export class BaileysService {
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
+        if (connection) {
+          log(userId, `🔌 Connection update: ${connection}`);
+        }
+
         if (qr) {
           log(userId, 'QR code ready');
           try {
@@ -408,7 +412,12 @@ export class BaileysService {
           done(null);
         } else if (connection === 'open') {
           const phoneNumber = sock.user?.id?.split(':')[0] ?? null;
-          log(userId, `connected phone=${phoneNumber ?? 'n/a'}`);
+          const targetedSync = targetedContactSyncs.get(userId);
+          if (targetedSync) {
+            log(userId, `✅ Connected phone=${phoneNumber ?? 'n/a'} - TARGETED SYNC ACTIVE for ${targetedSync.contactJid}`);
+          } else {
+            log(userId, `connected phone=${phoneNumber ?? 'n/a'}`);
+          }
           lastConnectionErrors.delete(userId);
 
           try {
@@ -435,7 +444,7 @@ export class BaileysService {
           clearTimeout(timeout);
           done(null);
           
-          // Check if this is a targeted sync (targetedSync already declared above)
+          // Check if this is a targeted sync
           if (targetedSync) {
             log(userId, `🎯 Skipping normal contact sync - TARGETED SYNC ACTIVE for ${targetedSync.contactJid}`);
             log(userId, `🎯 Waiting for messaging-history.set events for ${targetedSync.contactJid}...`);

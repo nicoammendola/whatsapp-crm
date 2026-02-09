@@ -236,7 +236,7 @@ export class BaileysService {
           clearTimeout(timeout);
           done(null);
           
-          const targetedSync = targetedContactSyncs.get(userId);
+          // Check if this is a targeted sync (targetedSync already declared above)
           if (targetedSync) {
             log(userId, `🎯 Skipping normal contact sync - TARGETED SYNC ACTIVE for ${targetedSync.contactJid}`);
             log(userId, `🎯 Waiting for messaging-history.set events for ${targetedSync.contactJid}...`);
@@ -435,7 +435,7 @@ export class BaileysService {
           clearTimeout(timeout);
           done(null);
           
-          const targetedSync = targetedContactSyncs.get(userId);
+          // Check if this is a targeted sync (targetedSync already declared above)
           if (targetedSync) {
             log(userId, `🎯 Skipping normal contact sync - TARGETED SYNC ACTIVE for ${targetedSync.contactJid}`);
             log(userId, `🎯 Waiting for messaging-history.set events for ${targetedSync.contactJid}...`);

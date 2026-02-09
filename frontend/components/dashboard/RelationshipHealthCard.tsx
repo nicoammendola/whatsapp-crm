@@ -301,7 +301,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
               <>
                 <div className="space-y-0.5">
                   {contacts.map((contact) => {
-                    const isOkWithoutReply = "okWithoutReply" in contact ? contact.okWithoutReply : false;
+                    const isOkWithoutReply = "okWithoutReply" in contact ? (contact.okWithoutReply ?? false) : false;
                     return (
                       <div
                         key={contact.id}

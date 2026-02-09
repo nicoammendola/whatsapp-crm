@@ -58,31 +58,42 @@ export function MessageThread({
         setSyncing(true);
         
         try {
+          console.log('🎯 No messages found for contact, checking WhatsApp connection...');
+          
           // Check if WhatsApp is connected before attempting sync
           const statusRes = await whatsappApi.getStatus();
           if (!statusRes.data.connected) {
-            console.log('WhatsApp not connected, skipping message sync');
+            console.log('❌ WhatsApp not connected, skipping message sync');
             setSyncing(false);
             return;
           }
           
+          console.log('✅ WhatsApp connected, triggering targeted history sync for contact:', contactId);
+          
           // Sync messages from WhatsApp
           await messagesApi.syncContactMessages(contactId, 100);
           
-          // Wait a bit for messages to be processed
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          console.log('✅ Sync request sent, waiting for messages to arrive via events...');
+          
+          // Wait longer for messages to be processed via events
+          // Targeted sync triggers a full history sync which may take a few seconds
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          console.log('⏰ Wait complete, reloading messages...');
           
           // Reload messages
           const retryRes = await messagesApi.getByContact(contactId, { limit: PAGE_SIZE, offset: 0 });
           const retryList = retryRes.data?.messages ?? [];
           setMessages(retryList.reverse());
           setHasMore(retryList.length === PAGE_SIZE);
+          
+          console.log(`📬 Loaded ${retryList.length} messages after sync`);
         } catch (syncError: any) {
-          console.error('Sync error:', syncError);
+          console.error('❌ Sync error:', syncError);
           // If it's a 503 (not connected), don't show error - just silently fail
           // Other errors are also silently handled as messages may sync automatically later
           if (syncError.response?.status !== 503) {
-            console.warn('Message sync failed:', syncError.response?.data?.error || syncError.message);
+            console.warn('⚠️ Message sync failed:', syncError.response?.data?.error || syncError.message);
           }
         } finally {
           setSyncing(false);

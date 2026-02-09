@@ -32,6 +32,13 @@ const syncStatus = new Map<string, {
   syncTimeout?: NodeJS.Timeout;
 }>();
 
+// Track targeted contact syncs (for syncing a specific contact's history)
+const targetedContactSyncs = new Map<string, {
+  contactJid: string;
+  startTime: number;
+  timeout?: NodeJS.Timeout;
+}>();
+
 function log(userId: string, message: string): void {
   console.log(`${LOG_PREFIX} userId=${userId} ${message}`);
 }
@@ -456,9 +463,44 @@ export class BaileysService {
     sock.ev.on('messaging-history.set', async ({ messages: historyMessages, contacts: historyContacts, isLatest }) => {
       log(userId, `history sync received: ${historyMessages?.length ?? 0} messages, ${historyContacts?.length ?? 0} contacts, isLatest=${isLatest ?? false}`);
 
+      // Check if we're doing a targeted sync for a specific contact
+      const targetedSync = targetedContactSyncs.get(userId);
+      const targetJid = targetedSync?.contactJid;
+
       // Filter messages to only include those newer than our latest message
       let messagesToProcess = historyMessages ?? [];
-      if (lastSyncTimestamp && messagesToProcess.length > 0) {
+      
+      // If we're doing a targeted sync, filter to only this contact's messages
+      if (targetJid) {
+        log(userId, `🎯 TARGETED SYNC ACTIVE for ${targetJid}`);
+        const beforeCount = messagesToProcess.length;
+        
+        // Log all unique JIDs in this batch for debugging
+        const uniqueJids = new Set<string>();
+        messagesToProcess.forEach(msg => {
+          const remoteJid = msg.key?.remoteJid;
+          if (remoteJid) {
+            uniqueJids.add(jidNormalizedUser(remoteJid));
+          }
+        });
+        log(userId, `🎯 Messages in this batch from JIDs: ${Array.from(uniqueJids).join(', ')}`);
+        
+        messagesToProcess = messagesToProcess.filter((msg) => {
+          const remoteJid = msg.key?.remoteJid;
+          if (!remoteJid) return false;
+          const msgJid = jidNormalizedUser(remoteJid);
+          const matches = msgJid === targetJid;
+          if (matches) {
+            log(userId, `🎯 MATCH: Message ${msg.key?.id} from ${msgJid} matches target`);
+          }
+          return matches;
+        });
+        const filteredCount = beforeCount - messagesToProcess.length;
+        log(userId, `🎯 Targeted sync: keeping ${messagesToProcess.length} messages for ${targetJid}, discarding ${filteredCount} from other contacts`);
+      }
+      
+      // Filter by timestamp (only if not doing targeted sync, or if we still want to respect timestamp)
+      if (lastSyncTimestamp && messagesToProcess.length > 0 && !targetJid) {
         const beforeCount = messagesToProcess.length;
         messagesToProcess = messagesToProcess.filter((msg) => {
           // Message timestamp is in Unix seconds (can be number or Long)
@@ -509,8 +551,16 @@ export class BaileysService {
         const filtered = messagesToProcess.filter(
           (msg) => !isStatusJid(msg.key?.remoteJid)
         );
+        
+        if (targetJid) {
+          log(userId, `🎯 Processing ${filtered.length} messages for targeted contact ${targetJid}`);
+        }
+        
         for (const msg of filtered) {
           try {
+            if (targetJid) {
+              log(userId, `🎯 Storing message ${msg.key?.id} for ${targetJid}`);
+            }
             await messageService.handleIncomingMessage(userId, msg, sock);
             const remoteJid = msg.key?.remoteJid;
             const selfJid = sock.user?.id;
@@ -526,15 +576,33 @@ export class BaileysService {
             console.error(`${LOG_PREFIX} Error handling history message:`, err);
           }
         }
-        log(userId, `history sync processed ${filtered.length} new messages`);
+        
+        if (targetJid) {
+          log(userId, `✅ Targeted sync: processed ${filtered.length} messages for ${targetJid}`);
+        } else {
+          log(userId, `history sync processed ${filtered.length} new messages`);
+        }
       } else {
-        log(userId, 'no new messages to process (all already in database)');
+        if (targetJid) {
+          log(userId, `⚠️ Targeted sync: no messages found for ${targetJid} in this batch`);
+        } else {
+          log(userId, 'no new messages to process (all already in database)');
+        }
       }
 
       // If this is the latest sync chunk, mark sync as complete
       if (isLatest === true) {
         log(userId, `history sync complete - ${sync?.messageCount ?? 0} new messages synced`);
         this.completeSync(userId);
+        
+        // Clean up targeted sync if active
+        if (targetedSync) {
+          log(userId, `targeted sync complete for ${targetJid} - cleaning up filter`);
+          if (targetedSync.timeout) {
+            clearTimeout(targetedSync.timeout);
+          }
+          targetedContactSyncs.delete(userId);
+        }
       }
     });
 
@@ -967,6 +1035,63 @@ export class BaileysService {
   }
 
   /**
+   * Trigger a full history sync filtered to a specific contact.
+   * This will request WhatsApp to send all history, but we'll only process messages for this contact.
+   */
+  async triggerTargetedHistorySync(userId: string, contactId: string): Promise<{ success: boolean }> {
+    const sock = activeConnections.get(userId);
+    if (!sock) {
+      log(userId, `❌ Cannot trigger targeted sync: WhatsApp not connected`);
+      throw new Error('WhatsApp not connected');
+    }
+
+    const contact = await contactService.getContactById(userId, contactId);
+    if (!contact || !contact.whatsappId) {
+      log(userId, `❌ Cannot trigger targeted sync: Contact not found`);
+      throw new Error('Contact not found or invalid');
+    }
+
+    const jid = jidNormalizedUser(contact.whatsappId);
+    log(userId, `🎯 TRIGGERING TARGETED HISTORY SYNC for contact ${contactId} (${jid})`);
+
+    // Set up targeted sync filter
+    targetedContactSyncs.set(userId, {
+      contactJid: jid,
+      startTime: Date.now(),
+      timeout: setTimeout(() => {
+        log(userId, `⏱️ Targeted sync timeout for ${jid} - cleaning up filter`);
+        targetedContactSyncs.delete(userId);
+      }, 60000), // 60 second timeout
+    });
+
+    log(userId, `🎯 Filter set up for ${jid} - will only process messages from this contact`);
+
+    try {
+      // Use Baileys' resyncAppState to trigger a history sync
+      // This will cause WhatsApp to send messaging-history.set events
+      // Our handler will filter to only process messages for the target contact
+      log(userId, `🎯 Calling resyncAppState to trigger history sync...`);
+      await sock.resyncAppState(['regular_high', 'regular_low', 'regular'], false);
+      
+      log(userId, `✅ resyncAppState called successfully - history will arrive via messaging-history.set events filtered to ${jid}`);
+      log(userId, `🎯 Waiting for messaging-history.set events... (timeout in 60s)`);
+      
+      // Return success - messages will arrive asynchronously via events
+      return { success: true };
+    } catch (err: any) {
+      // Clean up on error
+      const sync = targetedContactSyncs.get(userId);
+      if (sync?.timeout) {
+        clearTimeout(sync.timeout);
+      }
+      targetedContactSyncs.delete(userId);
+      log(userId, `❌ resyncAppState failed: ${err.message || 'Unknown error'}`);
+      console.error(`${LOG_PREFIX} Error triggering targeted sync for ${jid}:`, err);
+      throw new Error(`Failed to trigger history sync: ${err.message || 'Unknown error'}`);
+    }
+  }
+
+  /**
    * Fetch and sync messages from WhatsApp for a specific contact.
    * Fetches the last N messages (default 100) for the contact.
    */
@@ -985,7 +1110,7 @@ export class BaileysService {
     log(userId, `syncing messages for contact ${contactId} (${jid}), limit: ${limit}`);
 
     try {
-      // Try to access messages from socket store
+      // Try to access messages from socket store first
       // Baileys stores messages in sock.store.messages[jid].messages
       const store = sock as unknown as { 
         store?: { 
@@ -1003,32 +1128,66 @@ export class BaileysService {
         log(userId, `found ${messages.length} messages in store for ${jid}`);
       }
       
-      // If no messages in store, try to trigger a history fetch
-      // fetchMessageHistory requires: count, oldestMsgKey, oldestMsgTimestamp
-      // We'll use an empty key and timestamp 0 to try to fetch recent messages
+      // If no messages in store, try to get oldest message from database to use as reference
+      // fetchMessageHistory can only fetch messages OLDER than a reference message
       if (messages.length === 0) {
-        try {
-          // Create a minimal message key for the fetch
-          const emptyKey = { remoteJid: jid, id: '', fromMe: false };
-          const veryOldTimestamp = 0;
-          
-          // This triggers WhatsApp to send messages via events
-          // The messages will come through messaging-history.set event
-          await sock.fetchMessageHistory(limit, emptyKey, veryOldTimestamp);
-          
-          log(userId, `triggered history fetch for ${jid}, messages will arrive via events`);
-          
-          // Note: Messages will be processed by the existing messaging-history.set handler
-          // We return 0 here as the sync happens asynchronously via events
-          // The frontend will need to poll or wait for socket events to see the new messages
-          return { synced: 0 };
-        } catch (fetchErr: any) {
-          log(userId, `fetchMessageHistory failed for ${jid}: ${fetchErr.message}`);
-          return { synced: 0 };
+        const oldestMessage = await prisma.message.findFirst({
+          where: { userId, contactId },
+          orderBy: { timestamp: 'asc' },
+          select: { whatsappId: true, timestamp: true, fromMe: true },
+        });
+        
+        if (oldestMessage) {
+          // We have an existing message - use it as reference to fetch older messages
+          try {
+            const msgKey = {
+              remoteJid: jid,
+              id: oldestMessage.whatsappId,
+              fromMe: oldestMessage.fromMe,
+            };
+            const msgTimestamp = Math.floor(oldestMessage.timestamp.getTime() / 1000);
+            
+            log(userId, `fetching messages older than ${oldestMessage.whatsappId} (timestamp: ${msgTimestamp}) for ${jid}`);
+            
+            // fetchMessageHistory triggers WhatsApp to send messages via messaging-history.set event
+            // The messages will be processed by the existing event handler
+            await sock.fetchMessageHistory(limit, msgKey, msgTimestamp);
+            
+            log(userId, `triggered history fetch for ${jid} - messages will arrive via messaging-history.set event`);
+            
+            // Note: Messages will be processed asynchronously by the messaging-history.set handler
+            // We return 0 here as the sync happens via events, not synchronously
+            // The frontend will see new messages through socket events or polling
+            return { synced: 0 };
+          } catch (fetchErr: any) {
+            // Error 479 means WhatsApp rejected the request (invalid parameters or not allowed)
+            // This can happen if the message reference is invalid or WhatsApp doesn't allow fetching
+            log(userId, `fetchMessageHistory failed for ${jid}: ${fetchErr.message || 'Unknown error'}`);
+            if (fetchErr.output?.statusCode === 479 || fetchErr.message?.includes('479')) {
+              log(userId, `WhatsApp rejected history fetch (error 479) - may need valid message reference or contact may not have accessible history`);
+            }
+            return { synced: 0 };
+          }
+        } else {
+          // No messages in database and none in store
+          // Try triggering a targeted full history sync for this contact
+          log(userId, `📭 No messages found for ${jid} in store or database`);
+          log(userId, `🎯 Triggering targeted full history sync for ${jid}...`);
+          try {
+            await this.triggerTargetedHistorySync(userId, contactId);
+            log(userId, `✅ Targeted history sync triggered for ${jid} - messages will arrive via messaging-history.set events`);
+            log(userId, `⏳ Frontend should wait ~2-5 seconds and poll for new messages`);
+            // Return 0 as messages will arrive asynchronously
+            return { synced: 0 };
+          } catch (syncErr: any) {
+            log(userId, `❌ Targeted history sync failed for ${jid}: ${syncErr.message}`);
+            return { synced: 0 };
+          }
         }
       }
       
       // Process messages from store
+      log(userId, `📦 Processing ${messages.length} messages from store for ${jid}`);
       let synced = 0;
       for (const msg of messages) {
         try {
@@ -1041,7 +1200,7 @@ export class BaileysService {
         }
       }
 
-      log(userId, `synced ${synced} messages for contact ${contactId}`);
+      log(userId, `✅ Synced ${synced} messages from store for contact ${contactId}`);
       return { synced };
     } catch (err: any) {
       console.error(`${LOG_PREFIX} Error fetching messages for ${jid}:`, err);

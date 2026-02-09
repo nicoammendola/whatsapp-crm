@@ -132,3 +132,56 @@ export async function disconnectClient(req: AuthRequest, res: Response): Promise
     res.status(500).json({ error: 'Failed to process disconnect signal' });
   }
 }
+
+export async function syncContacts(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+
+    if (!baileysService.isConnected(userId)) {
+      res.status(503).json({ error: 'WhatsApp not connected' });
+      return;
+    }
+
+    const result = await baileysService.manualSyncContacts(userId);
+    res.json({ success: true, synced: result.synced });
+  } catch (error: any) {
+    console.error('Sync contacts error:', error);
+    if (error.message === 'WhatsApp not connected') {
+      res.status(503).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: 'Failed to sync contacts' });
+    }
+  }
+}
+
+export async function searchAndSyncContact(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const { phoneNumber, name } = req.body;
+
+    if (!baileysService.isConnected(userId)) {
+      res.status(503).json({ error: 'WhatsApp not connected' });
+      return;
+    }
+
+    if (!phoneNumber && !name) {
+      res.status(400).json({ error: 'Either phoneNumber or name is required' });
+      return;
+    }
+
+    const result = await baileysService.searchAndSyncContact(userId, phoneNumber, name);
+    
+    if (result) {
+      res.json({ success: true, contact: result.contact, synced: result.synced });
+    } else {
+      res.status(404).json({ error: 'Contact not found' });
+    }
+  } catch (error: any) {
+    console.error('Search and sync contact error:', error);
+    if (error.message === 'WhatsApp not connected') {
+      res.status(503).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: 'Failed to search and sync contact' });
+    }
+  }
+}

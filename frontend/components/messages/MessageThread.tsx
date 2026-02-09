@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { messagesApi } from "@/lib/api";
+import { messagesApi, whatsappApi } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useSocket } from "@/lib/socket";
 import { supabase } from "@/lib/supabase";
@@ -34,25 +34,65 @@ export function MessageThread({
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
+  const syncedRef = useRef(false); // Track if we've already synced for this contact
 
-  const loadInitial = useCallback(() => {
+  const loadInitial = useCallback(async () => {
     setLoading(true);
     setError(null);
     // Mark as read
     messagesApi.markAsRead(contactId).catch(() => {});
     
-    messagesApi
-      .getByContact(contactId, { limit: PAGE_SIZE, offset: 0 })
-      .then((res) => {
-        const list = res.data?.messages ?? [];
-        setMessages(list.reverse());
-        setHasMore(list.length === PAGE_SIZE);
-      })
-      .catch(() => setError("Failed to load messages"))
-      .finally(() => setLoading(false));
+    try {
+      const res = await messagesApi.getByContact(contactId, { limit: PAGE_SIZE, offset: 0 });
+      const list = res.data?.messages ?? [];
+      setMessages(list.reverse());
+      setHasMore(list.length === PAGE_SIZE);
+
+      // If no messages found and we haven't synced yet, trigger sync
+      if (list.length === 0 && !syncedRef.current) {
+        syncedRef.current = true;
+        setSyncing(true);
+        
+        try {
+          // Check if WhatsApp is connected before attempting sync
+          const statusRes = await whatsappApi.getStatus();
+          if (!statusRes.data.connected) {
+            console.log('WhatsApp not connected, skipping message sync');
+            setSyncing(false);
+            return;
+          }
+          
+          // Sync messages from WhatsApp
+          await messagesApi.syncContactMessages(contactId, 100);
+          
+          // Wait a bit for messages to be processed
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          // Reload messages
+          const retryRes = await messagesApi.getByContact(contactId, { limit: PAGE_SIZE, offset: 0 });
+          const retryList = retryRes.data?.messages ?? [];
+          setMessages(retryList.reverse());
+          setHasMore(retryList.length === PAGE_SIZE);
+        } catch (syncError: any) {
+          console.error('Sync error:', syncError);
+          // If it's a 503 (not connected), don't show error - just silently fail
+          // Other errors are also silently handled as messages may sync automatically later
+          if (syncError.response?.status !== 503) {
+            console.warn('Message sync failed:', syncError.response?.data?.error || syncError.message);
+          }
+        } finally {
+          setSyncing(false);
+        }
+      }
+    } catch (err) {
+      setError("Failed to load messages");
+    } finally {
+      setLoading(false);
+    }
   }, [contactId]);
 
   const loadOlder = useCallback(() => {
@@ -108,6 +148,8 @@ export function MessageThread({
   }, []);
 
   useEffect(() => {
+    // Reset synced ref when contact changes
+    syncedRef.current = false;
     loadInitial();
   }, [loadInitial]);
 
@@ -256,7 +298,14 @@ export function MessageThread({
             )}
             {messages.length === 0 ? (
               <div className="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                No messages yet with this contact.
+                {syncing ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                    <span>Syncing messages...</span>
+                  </div>
+                ) : (
+                  "No messages yet with this contact."
+                )}
               </div>
             ) : (
               messages.map((msg) => {

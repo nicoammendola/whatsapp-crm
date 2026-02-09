@@ -851,6 +851,203 @@ export class BaileysService {
     }
     return null;
   }
+
+  /**
+   * Manually sync contacts from WhatsApp store.
+   * Returns the number of contacts synced.
+   */
+  async manualSyncContacts(userId: string): Promise<{ synced: number }> {
+    const sock = activeConnections.get(userId);
+    if (!sock) {
+      throw new Error('WhatsApp not connected');
+    }
+
+    await this.syncContacts(userId, sock);
+    
+    // Count how many contacts were synced by checking the store
+    const store = sock as unknown as { store?: { contacts?: Record<string, { name?: string; notify?: string }> } };
+    const contacts = store.store?.contacts;
+    const synced = contacts ? Object.keys(contacts).filter(jid => {
+      const normalizedJid = jidNormalizedUser(jid ?? undefined);
+      return !normalizedJid.endsWith('@lid');
+    }).length : 0;
+
+    return { synced };
+  }
+
+  /**
+   * Search for a contact in WhatsApp by phone number or name and sync it.
+   * Phone number should be in E.164 format without + (e.g., "393293471494").
+   * Returns the synced contact if found, null otherwise.
+   */
+  async searchAndSyncContact(userId: string, phoneNumber?: string, name?: string): Promise<{ contact: any; synced: boolean } | null> {
+    const sock = activeConnections.get(userId);
+    if (!sock) {
+      throw new Error('WhatsApp not connected');
+    }
+
+    // First, sync all contacts to ensure we have the latest
+    await this.syncContacts(userId, sock);
+
+    // Search in the store
+    const store = sock as unknown as { store?: { contacts?: Record<string, { name?: string; notify?: string; imgUrl?: string }> } };
+    const contacts = store.store?.contacts;
+    
+    if (!contacts) {
+      return null;
+    }
+
+    // Normalize phone number for search (remove + and spaces)
+    const normalizedPhone = phoneNumber ? phoneNumber.replace(/[+\s\-()]/g, '') : null;
+    
+    // Search for matching contact
+    for (const [jid, contact] of Object.entries(contacts)) {
+      const normalizedJid = jidNormalizedUser(jid ?? undefined);
+      if (normalizedJid.endsWith('@lid')) continue;
+
+      // Extract phone number from JID (format: 393293471494@s.whatsapp.net)
+      const jidPhone = normalizedJid.split('@')[0];
+      
+      // Check if phone number matches
+      if (normalizedPhone && jidPhone === normalizedPhone) {
+        // Found by phone number - sync it
+        const syncedContact = await contactService.upsertContact(userId, {
+          whatsappId: normalizedJid,
+          name: contact.name,
+          pushName: contact.notify,
+          phoneNumber: normalizedPhone,
+          profilePicUrl: contact.imgUrl ?? undefined,
+        });
+        return { contact: syncedContact, synced: true };
+      }
+
+      // Check if name matches (case-insensitive)
+      if (name) {
+        const contactName = contact.name || contact.notify || '';
+        if (contactName.toLowerCase().includes(name.toLowerCase())) {
+          // Found by name - sync it
+          const syncedContact = await contactService.upsertContact(userId, {
+            whatsappId: normalizedJid,
+            name: contact.name,
+            pushName: contact.notify,
+            phoneNumber: jidPhone,
+            profilePicUrl: contact.imgUrl ?? undefined,
+          });
+          return { contact: syncedContact, synced: true };
+        }
+      }
+    }
+
+    // If not found in store, try to create contact from phone number if provided
+    if (normalizedPhone) {
+      const jid = `${normalizedPhone}@s.whatsapp.net`;
+      const normalizedJid = jidNormalizedUser(jid);
+      
+      // Try to fetch contact info from WhatsApp
+      try {
+        const results = await sock.onWhatsApp(normalizedJid);
+        if (results && Array.isArray(results) && results.length > 0) {
+          const result = results[0];
+          if (result?.exists) {
+            // Contact exists on WhatsApp - create it in our DB
+            const syncedContact = await contactService.upsertContact(userId, {
+              whatsappId: normalizedJid,
+              name: name || undefined,
+              phoneNumber: normalizedPhone,
+            });
+            return { contact: syncedContact, synced: true };
+          }
+        }
+      } catch (err) {
+        console.error(`${LOG_PREFIX} Error checking contact existence:`, err);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Fetch and sync messages from WhatsApp for a specific contact.
+   * Fetches the last N messages (default 100) for the contact.
+   */
+  async syncContactMessages(userId: string, contactId: string, limit: number = 100): Promise<{ synced: number }> {
+    const sock = activeConnections.get(userId);
+    if (!sock) {
+      throw new Error('WhatsApp not connected');
+    }
+
+    const contact = await contactService.getContactById(userId, contactId);
+    if (!contact || !contact.whatsappId) {
+      throw new Error('Contact not found or invalid');
+    }
+
+    const jid = contact.whatsappId;
+    log(userId, `syncing messages for contact ${contactId} (${jid}), limit: ${limit}`);
+
+    try {
+      // Try to access messages from socket store
+      // Baileys stores messages in sock.store.messages[jid].messages
+      const store = sock as unknown as { 
+        store?: { 
+          messages?: Record<string, { messages?: WAMessage[] }> 
+        } 
+      };
+      
+      let messages: WAMessage[] = [];
+      
+      // Check if messages are available in the store
+      if (store.store?.messages?.[jid]?.messages) {
+        const storeMessages = store.store.messages[jid].messages || [];
+        // Get the most recent messages (limit to requested amount)
+        messages = storeMessages.slice(-limit).reverse();
+        log(userId, `found ${messages.length} messages in store for ${jid}`);
+      }
+      
+      // If no messages in store, try to trigger a history fetch
+      // fetchMessageHistory requires: count, oldestMsgKey, oldestMsgTimestamp
+      // We'll use an empty key and timestamp 0 to try to fetch recent messages
+      if (messages.length === 0) {
+        try {
+          // Create a minimal message key for the fetch
+          const emptyKey = { remoteJid: jid, id: '', fromMe: false };
+          const veryOldTimestamp = 0;
+          
+          // This triggers WhatsApp to send messages via events
+          // The messages will come through messaging-history.set event
+          await sock.fetchMessageHistory(limit, emptyKey, veryOldTimestamp);
+          
+          log(userId, `triggered history fetch for ${jid}, messages will arrive via events`);
+          
+          // Note: Messages will be processed by the existing messaging-history.set handler
+          // We return 0 here as the sync happens asynchronously via events
+          // The frontend will need to poll or wait for socket events to see the new messages
+          return { synced: 0 };
+        } catch (fetchErr: any) {
+          log(userId, `fetchMessageHistory failed for ${jid}: ${fetchErr.message}`);
+          return { synced: 0 };
+        }
+      }
+      
+      // Process messages from store
+      let synced = 0;
+      for (const msg of messages) {
+        try {
+          // Process each message through the normal message handler
+          // This will create/update the message in the database
+          await messageService.handleIncomingMessage(userId, msg, sock);
+          synced++;
+        } catch (err) {
+          console.error(`${LOG_PREFIX} Error syncing message ${msg.key?.id}:`, err);
+        }
+      }
+
+      log(userId, `synced ${synced} messages for contact ${contactId}`);
+      return { synced };
+    } catch (err: any) {
+      console.error(`${LOG_PREFIX} Error fetching messages for ${jid}:`, err);
+      throw new Error(`Failed to sync messages: ${err.message || 'Unknown error'}`);
+    }
+  }
 }
 
 export const baileysService = new BaileysService();

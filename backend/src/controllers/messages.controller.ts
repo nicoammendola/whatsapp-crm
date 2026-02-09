@@ -94,3 +94,34 @@ export async function getContactMessages(req: AuthRequest, res: Response): Promi
     res.status(500).json({ error: 'Failed to fetch messages' });
   }
 }
+
+export async function syncContactMessages(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const contactId = typeof req.params.contactId === 'string' ? req.params.contactId : req.params.contactId[0];
+    const limit = parseLimit(req.query.limit, 100);
+
+    if (!baileysService.isConnected(userId)) {
+      res.status(503).json({ error: 'WhatsApp not connected' });
+      return;
+    }
+
+    const contact = await contactService.getContactById(userId, contactId);
+    if (!contact) {
+      res.status(404).json({ error: 'Contact not found' });
+      return;
+    }
+
+    const result = await baileysService.syncContactMessages(userId, contactId, limit);
+    res.json({ success: true, synced: result.synced });
+  } catch (error: any) {
+    console.error('Sync contact messages error:', error);
+    if (error.message === 'WhatsApp not connected') {
+      res.status(503).json({ error: error.message });
+    } else if (error.message === 'Contact not found or invalid') {
+      res.status(404).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: error.message || 'Failed to sync messages' });
+    }
+  }
+}

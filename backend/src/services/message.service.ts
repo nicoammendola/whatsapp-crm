@@ -493,28 +493,29 @@ export class MessageService {
     search?: string
   ): Promise<{ conversations: Array<{ contact: any; lastMessage: any; unreadCount: number }>; hasMore: boolean }> {
     // Single query: contact IDs ordered by latest message timestamp (most recent first)
-    // If search is provided, filter by contact name/phone
-    let ordered: Array<{ contactId: string; lastTs: Date; unreadCount: bigint }>;
+    // If search is provided, filter by contact name/phone and include contacts without messages
+    let ordered: Array<{ contactId: string; lastTs: Date | null; unreadCount: bigint }>;
     
     if (search && search.trim()) {
       const searchTerm = `%${search.trim()}%`;
+      // When searching, include contacts even if they have no messages
       ordered = await prisma.$queryRaw<
-        Array<{ contactId: string; lastTs: Date; unreadCount: bigint }>
+        Array<{ contactId: string; lastTs: Date | null; unreadCount: bigint }>
       >`
-        SELECT m."contactId",
+        SELECT c.id as "contactId",
                MAX(m."timestamp") as "lastTs",
                COUNT(*) FILTER (WHERE m."isRead" = false AND m."fromMe" = false)::bigint as "unreadCount"
-        FROM messages m
-        INNER JOIN contacts c ON c.id = m."contactId"
-        WHERE m."userId" = ${userId}
+        FROM contacts c
+        LEFT JOIN messages m ON m."contactId" = c.id AND m."userId" = ${userId}
+        WHERE c."userId" = ${userId}
           AND (
             c.name ILIKE ${searchTerm}
             OR c."pushName" ILIKE ${searchTerm}
             OR c."phoneNumber" ILIKE ${searchTerm}
             OR c."whatsappId" ILIKE ${searchTerm}
           )
-        GROUP BY m."contactId"
-        ORDER BY "lastTs" DESC NULLS LAST
+        GROUP BY c.id
+        ORDER BY "lastTs" DESC NULLS LAST, c."updatedAt" DESC
         LIMIT ${limit + 1}
         OFFSET ${offset}
       `;
@@ -557,12 +558,29 @@ export class MessageService {
       const row = page[i];
       const contact = contactMap.get(row.contactId);
       const lastMessage = lastMessages[i];
-      if (!contact || !lastMessage) continue;
-      conversations.push({
-        contact,
-        lastMessage,
-        unreadCount: Number(row.unreadCount),
-      });
+      if (!contact) continue;
+      
+      // If contact has no messages, create a placeholder message
+      if (!lastMessage) {
+        conversations.push({
+          contact,
+          lastMessage: {
+            id: '',
+            body: null,
+            timestamp: contact.updatedAt || contact.createdAt,
+            fromMe: false,
+            type: 'TEXT',
+            hasMedia: false,
+          },
+          unreadCount: 0,
+        });
+      } else {
+        conversations.push({
+          contact,
+          lastMessage,
+          unreadCount: Number(row.unreadCount),
+        });
+      }
     }
 
     return { conversations, hasMore };

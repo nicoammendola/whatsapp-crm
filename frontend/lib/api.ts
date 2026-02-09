@@ -77,6 +77,9 @@ export const whatsappApi = {
   disconnect: () => api.post<{ success: boolean; message?: string }>("/whatsapp/disconnect"),
   heartbeat: () => api.post<{ success: boolean; connected: boolean; message?: string }>("/whatsapp/heartbeat"),
   disconnectClient: () => api.post<{ success: boolean; message?: string }>("/whatsapp/disconnect-client"),
+  syncContacts: () => api.post<{ success: boolean; synced: number }>("/whatsapp/sync-contacts"),
+  searchAndSyncContact: (data: { phoneNumber?: string; name?: string }) =>
+    api.post<{ success: boolean; contact: Contact; synced: boolean }>("/whatsapp/search-and-sync-contact", data),
 };
 
 // Contacts
@@ -135,6 +138,10 @@ export const messagesApi = {
       contactId,
       ...data,
     }),
+  syncContactMessages: (contactId: string, limit?: number) => {
+    const config = limit ? { params: { limit } } : {};
+    return api.post<{ success: boolean; synced: number }>(`/messages/contact/${contactId}/sync`, {}, config);
+  },
 };
 
 // Analytics (Phase 6 — backend: GET /api/analytics/*)

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { messagesApi } from "@/lib/api";
+import { messagesApi, whatsappApi } from "@/lib/api";
 import { useSocket } from "@/lib/socket";
 import type { Conversation } from "@/lib/api";
 import type { Contact } from "@/types";
@@ -23,12 +23,14 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [currentSearch, setCurrentSearch] = useState("");
+  const [syncing, setSyncing] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const syncedSearchRef = useRef<string>(""); // Track which searches we've already synced for
   const socket = useSocket();
 
-  const loadConversations = async (append: boolean) => {
+  const loadConversations = async (append: boolean, skipSync = false) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     
@@ -46,6 +48,80 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
       const list = data.conversations ?? [];
       setHasMore(data.hasMore ?? false);
       setConversations((prev) => (append ? [...prev, ...list] : list));
+
+      // If search returned no results and we haven't synced for this search yet, trigger sync
+      if (!skipSync && !append && currentSearch && list.length === 0 && syncedSearchRef.current !== currentSearch) {
+        syncedSearchRef.current = currentSearch;
+        setSyncing(true);
+        
+        try {
+          // Try to search and sync the contact by name or phone number
+          const searchTrimmed = currentSearch.trim();
+          
+          // Check if search looks like a phone number (mostly digits, at least 7 digits)
+          const digitsOnly = searchTrimmed.replace(/\D/g, '');
+          const isPhoneNumber = digitsOnly.length >= 7 && digitsOnly.length <= 15;
+          
+          let phoneNumber: string | undefined;
+          let name: string | undefined;
+          
+          if (isPhoneNumber) {
+            // Search looks like a phone number
+            phoneNumber = digitsOnly;
+            // Try to extract name if there are non-digit characters
+            const namePart = searchTrimmed.replace(/\d/g, '').trim();
+            name = namePart || undefined;
+          } else {
+            // Search looks like a name, but check if it contains a phone number
+            const phoneMatch = searchTrimmed.match(/\d{7,15}/);
+            if (phoneMatch) {
+              phoneNumber = phoneMatch[0];
+              name = searchTrimmed.replace(phoneMatch[0], '').trim() || undefined;
+            } else {
+              name = searchTrimmed;
+            }
+          }
+          
+          if (phoneNumber || name) {
+            await whatsappApi.searchAndSyncContact({
+              phoneNumber: phoneNumber || undefined,
+              name: name || undefined,
+            });
+            
+            // Wait a bit for sync to complete, then retry search
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Retry the search
+            const { data: retryData } = await messagesApi.getConversations({
+              limit: PAGE_SIZE,
+              offset: 0,
+              search: currentSearch || undefined,
+            });
+            const retryList = retryData.conversations ?? [];
+            setHasMore(retryData.hasMore ?? false);
+            setConversations(retryList);
+          } else {
+            // If no phone or name, just sync all contacts
+            await whatsappApi.syncContacts();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Retry the search
+            const { data: retryData } = await messagesApi.getConversations({
+              limit: PAGE_SIZE,
+              offset: 0,
+              search: currentSearch || undefined,
+            });
+            const retryList = retryData.conversations ?? [];
+            setHasMore(retryData.hasMore ?? false);
+            setConversations(retryList);
+          }
+        } catch (syncError) {
+          console.error('Sync error:', syncError);
+          // Don't show error to user, just continue
+        } finally {
+          setSyncing(false);
+        }
+      }
     } catch {
       setError("Failed to load conversations");
     } finally {
@@ -57,6 +133,10 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
 
   // Initial load
   useEffect(() => {
+    // Reset synced search ref when search changes
+    if (syncedSearchRef.current !== currentSearch) {
+      syncedSearchRef.current = "";
+    }
     loadConversations(false);
   }, [currentSearch]);
 
@@ -189,7 +269,16 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
             )}
             {conversations.length === 0 ? (
               <div className="p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                {search ? "No conversations match your search." : "No conversations yet."}
+                {syncing ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                    <span>Syncing contacts...</span>
+                  </div>
+                ) : search ? (
+                  "No conversations match your search."
+                ) : (
+                  "No conversations yet."
+                )}
               </div>
             ) : (
               conversations.map((conv) => {

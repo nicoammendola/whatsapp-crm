@@ -1067,77 +1067,6 @@ export class BaileysService {
   }
 
   /**
-   * Trigger a full history sync filtered to a specific contact by reconnecting.
-   * This will disconnect and reconnect WhatsApp to trigger a fresh history sync,
-   * but only process messages for the target contact.
-   */
-  async triggerTargetedHistorySync(userId: string, contactId: string): Promise<{ success: boolean }> {
-    const sock = activeConnections.get(userId);
-    if (!sock) {
-      log(userId, `❌ Cannot trigger targeted sync: WhatsApp not connected`);
-      throw new Error('WhatsApp not connected');
-    }
-
-    const contact = await contactService.getContactById(userId, contactId);
-    if (!contact || !contact.whatsappId) {
-      log(userId, `❌ Cannot trigger targeted sync: Contact not found`);
-      throw new Error('Contact not found or invalid');
-    }
-
-    const jid = jidNormalizedUser(contact.whatsappId);
-    log(userId, `🎯 TRIGGERING TARGETED HISTORY SYNC for contact ${contactId} (${jid})`);
-    log(userId, `🎯 Strategy: Temporarily reconnect to WhatsApp to trigger fresh history sync`);
-
-    // Set up targeted sync filter BEFORE reconnecting
-    targetedContactSyncs.set(userId, {
-      contactJid: jid,
-      startTime: Date.now(),
-      timeout: setTimeout(() => {
-        log(userId, `⏱️ Targeted sync timeout for ${jid} - cleaning up filter`);
-        targetedContactSyncs.delete(userId);
-      }, 60000), // 60 second timeout
-    });
-
-    log(userId, `🎯 Filter set up for ${jid} - will only process messages from this contact during reconnection`);
-
-    try {
-      // Gracefully close current connection (doesn't logout, just closes socket)
-      log(userId, `🔌 Closing current connection to trigger reconnection...`);
-      if (typeof (sock as any).end === 'function') {
-        (sock as any).end();
-      } else if (typeof (sock as any).ws?.close === 'function') {
-        (sock as any).ws.close();
-      }
-      
-      // Remove from active connections
-      activeConnections.delete(userId);
-      
-      // Wait a moment for cleanup
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Reconnect - this will trigger a fresh history sync
-      log(userId, `🔄 Reconnecting to WhatsApp to trigger history sync...`);
-      await this.initializeWhatsApp(userId);
-      
-      log(userId, `✅ Reconnection initiated - history sync will arrive via messaging-history.set events filtered to ${jid}`);
-      log(userId, `🎯 Filter active - only messages for ${jid} will be processed`);
-      
-      // Return success - messages will arrive asynchronously via events
-      return { success: true };
-    } catch (err: any) {
-      // Clean up on error
-      const sync = targetedContactSyncs.get(userId);
-      if (sync?.timeout) {
-        clearTimeout(sync.timeout);
-      }
-      targetedContactSyncs.delete(userId);
-      log(userId, `❌ Reconnection failed: ${err.message || 'Unknown error'}`);
-      console.error(`${LOG_PREFIX} Error triggering targeted sync for ${jid}:`, err);
-      throw new Error(`Failed to trigger history sync: ${err.message || 'Unknown error'}`);
-    }
-  }
-
-  /**
    * Fetch and sync messages from WhatsApp for a specific contact.
    * Fetches the last N messages (default 100) for the contact.
    */
@@ -1216,19 +1145,15 @@ export class BaileysService {
           }
         } else {
           // No messages in database and none in store
-          // Try triggering a targeted full history sync for this contact
+          // Unfortunately, WhatsApp only syncs history on the initial connection
+          // There's no way to fetch historical messages for a chat without a reference message
           log(userId, `📭 No messages found for ${jid} in store or database`);
-          log(userId, `🎯 Triggering targeted full history sync for ${jid}...`);
-          try {
-            await this.triggerTargetedHistorySync(userId, contactId);
-            log(userId, `✅ Targeted history sync triggered for ${jid} - messages will arrive via messaging-history.set events`);
-            log(userId, `⏳ Frontend should wait ~2-5 seconds and poll for new messages`);
-            // Return 0 as messages will arrive asynchronously
-            return { synced: 0 };
-          } catch (syncErr: any) {
-            log(userId, `❌ Targeted history sync failed for ${jid}: ${syncErr.message}`);
-            return { synced: 0 };
-          }
+          log(userId, `ℹ️  Historical messages are only synced on initial WhatsApp connection`);
+          log(userId, `ℹ️  New messages will be synced automatically when sent/received`);
+          
+          // Check if messages exist on WhatsApp but weren't synced
+          // (This could happen if the contact was added after initial sync)
+          throw new Error('NO_HISTORY_AVAILABLE');
         }
       }
       

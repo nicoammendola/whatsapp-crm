@@ -107,6 +107,7 @@ export class ContactService {
       contactFrequency?: string | null;
       importance?: number | null;
       customFields?: any;
+      okWithoutReply?: boolean;
     }
   ) {
     // Validate importance range

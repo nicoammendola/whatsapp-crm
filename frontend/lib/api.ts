@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance } from "axios";
-import type { User, Contact, ContactStats, Message, WhatsAppStatusResponse, DashboardStats } from "@/types";
+import type { User, Contact, ContactStats, Message, WhatsAppStatusResponse, DashboardStats, UpcomingBirthday, ImportantDate } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -97,6 +97,7 @@ export const contactsApi = {
     contactFrequency?: string;
     importance?: number;
     customFields?: Record<string, any>;
+    okWithoutReply?: boolean;
   }) =>
     api.patch<Contact>(`/contacts/${id}`, data),
 };
@@ -145,8 +146,86 @@ export const analyticsApi = {
 };
 
 // Dashboard
+export interface MessagesGraphDataPoint {
+  date: string;
+  sent: number;
+  received: number;
+}
+
+export interface ActiveContactsGraphDataPoint {
+  date: string;
+  daily: number;
+  weekly: number;
+  monthly: number;
+}
+
+export interface HealthStatusContact {
+  id: string;
+  name: string | null;
+  pushName: string | null;
+  phoneNumber: string | null;
+  profilePicUrl: string | null;
+  lastMessageSnippet: string | null;
+  lastMessageTime: string | null;
+  contactFrequency?: string | null;
+  daysOverdue?: number;
+}
+
+export interface AwaitingReplyContact {
+  id: string;
+  name: string | null;
+  pushName: string | null;
+  phoneNumber: string | null;
+  profilePicUrl: string | null;
+  lastMessageSnippet: string | null;
+  lastMessageTime: string;
+  okWithoutReply?: boolean;
+}
+
 export const dashboardApi = {
   getStats: () => api.get<DashboardStats>("/api/dashboard/stats"),
+  getMessagesGraph: (fromDate: string, toDate: string) =>
+    api.get<MessagesGraphDataPoint[]>("/api/dashboard/messages-graph", {
+      params: { fromDate, toDate },
+    }),
+  getActiveContactsGraph: (fromDate: string, toDate: string) =>
+    api.get<ActiveContactsGraphDataPoint[]>("/api/dashboard/active-contacts-graph", {
+      params: { fromDate, toDate },
+    }),
+  getOldestMessageDate: () =>
+    api.get<{ oldestDate: string | null }>("/api/dashboard/oldest-message-date"),
+  getContactsByHealthStatus: (
+    status: 'onTrack' | 'needsAttention' | 'atRisk',
+    limit?: number,
+    offset?: number
+  ) =>
+    api.get<{ contacts: HealthStatusContact[]; total: number; hasMore: boolean }>(
+      "/api/dashboard/contacts-by-health-status",
+      {
+        params: { status, limit, offset },
+      }
+    ),
+  getAwaitingReplies: (limit?: number, offset?: number) =>
+    api.get<{ contacts: AwaitingReplyContact[]; total: number; hasMore: boolean }>(
+      "/api/dashboard/awaiting-replies",
+      {
+        params: { limit, offset },
+      }
+    ),
+  getUpcomingBirthdays: (limit?: number, offset?: number) =>
+    api.get<{ birthdays: UpcomingBirthday[]; total: number; hasMore: boolean }>(
+      "/api/dashboard/upcoming-birthdays",
+      {
+        params: { limit, offset },
+      }
+    ),
+  getUpcomingImportantDates: (limit?: number, offset?: number) =>
+    api.get<{ dates: ImportantDate[]; total: number; hasMore: boolean }>(
+      "/api/dashboard/upcoming-important-dates",
+      {
+        params: { limit, offset },
+      }
+    ),
 };
 
 export default api;

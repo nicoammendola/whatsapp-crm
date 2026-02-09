@@ -70,6 +70,7 @@ model Contact {
   relationshipType String?  // "family", "close_friend", "colleague", "acquaintance"
   contactFrequency String?  // "daily", "weekly", "monthly", "quarterly"
   importance      Int?      @default(0) // 0-5 scale
+  okWithoutReply  Boolean  @default(false) // Mark contact as OK without replying to awaiting messages
 
   // NEW: Custom fields (JSONB for flexibility)
   customFields    Json?     @db.JsonB

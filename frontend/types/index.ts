@@ -41,6 +41,7 @@ export interface Contact {
   interactionCount7d?: number | null;
   interactionCount30d?: number | null;
   interactionCount90d?: number | null;
+  okWithoutReply?: boolean;
   createdAt: string;
   updatedAt: string;
 }

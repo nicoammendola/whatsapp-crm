@@ -80,6 +80,7 @@ export async function updateContact(req: AuthRequest, res: Response): Promise<vo
       contactFrequency,
       importance,
       customFields,
+      okWithoutReply,
     } = req.body;
 
     const data: {
@@ -93,6 +94,7 @@ export async function updateContact(req: AuthRequest, res: Response): Promise<vo
       contactFrequency?: string | null;
       importance?: number | null;
       customFields?: any;
+      okWithoutReply?: boolean;
     } = {};
 
     if (notes !== undefined && typeof notes === 'string') data.notes = notes;
@@ -105,6 +107,7 @@ export async function updateContact(req: AuthRequest, res: Response): Promise<vo
     if (contactFrequency !== undefined) data.contactFrequency = contactFrequency;
     if (importance !== undefined) data.importance = importance;
     if (customFields !== undefined) data.customFields = customFields;
+    if (okWithoutReply !== undefined && typeof okWithoutReply === 'boolean') data.okWithoutReply = okWithoutReply;
 
     await contactService.updateContact(userId, id, data);
     res.json({ success: true });

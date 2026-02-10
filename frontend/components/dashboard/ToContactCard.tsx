@@ -44,7 +44,6 @@ export default function ToContactCard({ contacts }: ToContactCardProps) {
     <DashboardCard
       title="Time to Reach Out"
       icon={<Calendar className="h-5 w-5" />}
-      urgency={contacts[0]?.urgency || 'low'}
     >
       <div className="space-y-3">
         {displayContacts.map((contact) => (

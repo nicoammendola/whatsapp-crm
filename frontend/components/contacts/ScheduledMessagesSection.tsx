@@ -42,8 +42,9 @@ export function ScheduledMessagesSection({ contactId }: ScheduledMessagesSection
 
   // Supabase realtime: subscribe to scheduled_messages for this contact
   useEffect(() => {
-    if (!supabase || !contactId) return;
-    const channel = supabase
+    const client = supabase;
+    if (!client || !contactId) return;
+    const channel = client
       .channel(`scheduled_messages:${contactId}`)
       .on(
         "postgres_changes",
@@ -59,7 +60,7 @@ export function ScheduledMessagesSection({ contactId }: ScheduledMessagesSection
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      client.removeChannel(channel);
     };
   }, [contactId, load]);
 

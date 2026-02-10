@@ -60,8 +60,9 @@ export function MessageThread({
 
   // Real-time updates for scheduled messages (Supabase)
   useEffect(() => {
-    if (!supabase || !contactId) return;
-    const channel = supabase
+    const client = supabase;
+    if (!client || !contactId) return;
+    const channel = client
       .channel(`scheduled_messages_thread:${contactId}`)
       .on(
         "postgres_changes",
@@ -75,7 +76,7 @@ export function MessageThread({
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      client.removeChannel(channel);
     };
   }, [contactId, loadScheduled]);
 

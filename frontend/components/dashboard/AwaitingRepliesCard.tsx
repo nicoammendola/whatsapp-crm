@@ -40,7 +40,6 @@ export default function AwaitingRepliesCard({ contacts }: AwaitingRepliesCardPro
     <DashboardCard
       title="Awaiting Replies"
       icon={<Clock className="h-5 w-5" />}
-      urgency={contacts[0]?.urgency || 'low'}
     >
       <div className="space-y-3">
         {displayContacts.map((contact) => (

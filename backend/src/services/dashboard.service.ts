@@ -768,7 +768,7 @@ export class DashboardService {
   }
 
   /**
-   * Get contacts awaiting replies with pagination
+   * Get contacts awaiting replies with pagination (last message not from user)
    */
   async getAwaitingRepliesPaginated(
     userId: string,
@@ -832,6 +832,135 @@ export class DashboardService {
       total,
       hasMore,
     };
+  }
+
+  private lastMessageHasQuestion(body: string | null, type: string): boolean {
+    if (type !== 'TEXT' || !body) return false;
+    return body.includes('?');
+  }
+
+  /**
+   * Get contacts "To reply" with pagination: last message not from user AND contains a question mark.
+   */
+  async getToRepliesPaginated(
+    userId: string,
+    limit: number = 20,
+    offset: number = 0
+  ) {
+    const contacts = await prisma.contact.findMany({
+      where: { 
+        userId, 
+        isGroup: false,
+        okWithoutReply: false,
+      },
+      include: {
+        messages: {
+          orderBy: { timestamp: 'desc' },
+          take: 1,
+          select: { 
+            fromMe: true, 
+            body: true, 
+            timestamp: true,
+            type: true,
+          },
+        },
+      },
+    });
+
+    const toReplies = contacts
+      .filter(c => {
+        if (c.messages.length === 0) return false;
+        const last = c.messages[0];
+        return !last.fromMe && this.lastMessageHasQuestion(last.body, last.type);
+      })
+      .map(contact => {
+        const lastMessage = contact.messages[0];
+        let snippet = lastMessage.body || '';
+        if (lastMessage.type !== 'TEXT') {
+          snippet = `(${lastMessage.type.toLowerCase()})`;
+        } else if (snippet.length > 60) {
+          snippet = snippet.slice(0, 60) + '…';
+        }
+        return {
+          id: contact.id,
+          name: contact.name,
+          pushName: contact.pushName,
+          phoneNumber: contact.phoneNumber,
+          profilePicUrl: contact.profilePicUrl,
+          lastMessageSnippet: snippet,
+          lastMessageTime: lastMessage.timestamp,
+          okWithoutReply: contact.okWithoutReply || false,
+        };
+      })
+      .sort((a, b) => a.lastMessageTime.getTime() - b.lastMessageTime.getTime())
+      .slice(offset, offset + limit);
+
+    const total = contacts.filter(c => {
+      if (c.messages.length === 0) return false;
+      const last = c.messages[0];
+      return !last.fromMe && this.lastMessageHasQuestion(last.body, last.type);
+    }).length;
+    const hasMore = offset + limit < total;
+
+    return { contacts: toReplies, total, hasMore };
+  }
+
+  /**
+   * Get contacts "Awaiting reply" with pagination: last message from user AND contains a question mark.
+   * Excludes contacts marked as OK without reply.
+   */
+  async getAwaitingReplyPaginated(
+    userId: string,
+    limit: number = 20,
+    offset: number = 0
+  ) {
+    const contacts = await prisma.contact.findMany({
+      where: { userId, isGroup: false, okWithoutReply: false },
+      include: {
+        messages: {
+          orderBy: { timestamp: 'desc' },
+          take: 1,
+          select: { fromMe: true, body: true, timestamp: true, type: true },
+        },
+      },
+    });
+
+    const awaitingReply = contacts
+      .filter(c => {
+        if (c.messages.length === 0) return false;
+        const last = c.messages[0];
+        return last.fromMe && this.lastMessageHasQuestion(last.body, last.type);
+      })
+      .map(contact => {
+        const lastMessage = contact.messages[0];
+        let snippet = lastMessage.body || '';
+        if (lastMessage.type !== 'TEXT') {
+          snippet = `(${lastMessage.type.toLowerCase()})`;
+        } else if (snippet.length > 60) {
+          snippet = snippet.slice(0, 60) + '…';
+        }
+        return {
+          id: contact.id,
+          name: contact.name,
+          pushName: contact.pushName,
+          phoneNumber: contact.phoneNumber,
+          profilePicUrl: contact.profilePicUrl,
+          lastMessageSnippet: snippet,
+          lastMessageTime: lastMessage.timestamp,
+          okWithoutReply: contact.okWithoutReply || false,
+        };
+      })
+      .sort((a, b) => a.lastMessageTime.getTime() - b.lastMessageTime.getTime())
+      .slice(offset, offset + limit);
+
+    const total = contacts.filter(c => {
+      if (c.messages.length === 0) return false;
+      const last = c.messages[0];
+      return last.fromMe && this.lastMessageHasQuestion(last.body, last.type);
+    }).length;
+    const hasMore = offset + limit < total;
+
+    return { contacts: awaitingReply, total, hasMore };
   }
 
   /**

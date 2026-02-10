@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Contact } from "@/types";
+import { RemindersSection } from "./RemindersSection";
 
 interface ContactHeaderProps {
   contact: Contact;
@@ -64,6 +65,9 @@ export function ContactHeader({ contact, onUpdate }: ContactHeaderProps) {
           </p>
         )}
       </div>
+
+      {/* Ping reminders - above Tags */}
+      <RemindersSection contactId={contact.id} />
 
       {/* Tags */}
       <div>

@@ -94,6 +94,7 @@ export interface Message {
     pushName: string | null;
   }>;
   reactions?: { emoji: string; fromMe: boolean }[];
+  isEdited?: boolean;
   contact?: {
     id: string;
     name: string | null;
@@ -168,6 +169,51 @@ export interface ImportantDate {
   fieldLabel: string;
   date: string;
   yearsAgo: number | null;
+  daysUntil: number;
+  urgency: UrgencyLevel;
+}
+
+export interface Reminder {
+  id: string;
+  contactId: string;
+  dueDate: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ScheduledMessageStatus =
+  | "pending"
+  | "sending"
+  | "sent"
+  | "failed"
+  | "cancelled";
+
+export interface ScheduledMessage {
+  id: string;
+  contactId: string;
+  messageText: string;
+  scheduledTime: string;
+  status: ScheduledMessageStatus;
+  errorMessage: string | null;
+  sentAt: string | null;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpcomingReminder {
+  id: string;
+  contactId: string;
+  dueDate: string;
+  notes: string | null;
+  contact: {
+    id: string;
+    name: string | null;
+    pushName: string | null;
+    phoneNumber: string | null;
+    profilePicUrl: string | null;
+  };
   daysUntil: number;
   urgency: UrgencyLevel;
 }

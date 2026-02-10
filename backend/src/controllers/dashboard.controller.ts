@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { dashboardService } from '../services/dashboard.service';
+import { reminderService } from '../services/reminder.service';
 
 export async function getDashboardStats(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -126,6 +127,54 @@ export async function getAwaitingRepliesPaginated(req: AuthRequest, res: Respons
   }
 }
 
+export async function getToRepliesPaginated(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+
+    if (isNaN(limit) || limit < 1 || limit > 100) {
+      res.status(400).json({ error: 'Invalid limit. Must be between 1 and 100' });
+      return;
+    }
+
+    if (isNaN(offset) || offset < 0) {
+      res.status(400).json({ error: 'Invalid offset. Must be >= 0' });
+      return;
+    }
+
+    const result = await dashboardService.getToRepliesPaginated(userId, limit, offset);
+    res.json(result);
+  } catch (error) {
+    console.error('Get to reply error:', error);
+    res.status(500).json({ error: 'Failed to fetch to reply' });
+  }
+}
+
+export async function getAwaitingReplyPaginated(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+
+    if (isNaN(limit) || limit < 1 || limit > 100) {
+      res.status(400).json({ error: 'Invalid limit. Must be between 1 and 100' });
+      return;
+    }
+
+    if (isNaN(offset) || offset < 0) {
+      res.status(400).json({ error: 'Invalid offset. Must be >= 0' });
+      return;
+    }
+
+    const result = await dashboardService.getAwaitingReplyPaginated(userId, limit, offset);
+    res.json(result);
+  } catch (error) {
+    console.error('Get awaiting reply error:', error);
+    res.status(500).json({ error: 'Failed to fetch awaiting reply' });
+  }
+}
+
 export async function getUpcomingBirthdaysPaginated(req: AuthRequest, res: Response): Promise<void> {
   try {
     const userId = req.userId!;
@@ -171,5 +220,29 @@ export async function getUpcomingImportantDatesPaginated(req: AuthRequest, res: 
   } catch (error) {
     console.error('Get upcoming important dates error:', error);
     res.status(500).json({ error: 'Failed to fetch upcoming important dates' });
+  }
+}
+
+export async function getUpcomingRemindersPaginated(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 5;
+    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+
+    if (isNaN(limit) || limit < 1 || limit > 100) {
+      res.status(400).json({ error: 'Invalid limit. Must be between 1 and 100' });
+      return;
+    }
+
+    if (isNaN(offset) || offset < 0) {
+      res.status(400).json({ error: 'Invalid offset. Must be >= 0' });
+      return;
+    }
+
+    const result = await reminderService.getUpcomingPaginated(userId, limit, offset);
+    res.json(result);
+  } catch (error) {
+    console.error('Get upcoming reminders error:', error);
+    res.status(500).json({ error: 'Failed to fetch upcoming reminders' });
   }
 }

@@ -14,6 +14,27 @@ import mime from 'mime-types';
 
 const LOG_PREFIX = '[Message]';
 
+/** Payload shape for WhatsApp message edit (editedMessage wrapper with protocolMessage) */
+function getMessageEditInfo(waMessage: WAMessage): { originalKey: { id: string; remoteJid: string; fromMe: boolean }; editedBody: string | null } | null {
+  const edited = (waMessage.message as any)?.editedMessage?.message?.protocolMessage;
+  if (!edited || edited.type !== 'MESSAGE_EDIT') return null;
+  const key = edited.key;
+  if (!key?.id || !key?.remoteJid) return null;
+  const editedContent = edited.editedMessage;
+  if (!editedContent || typeof editedContent !== 'object') return null;
+  let editedBody: string | null = null;
+  if (typeof editedContent.conversation === 'string') editedBody = editedContent.conversation;
+  else if (editedContent.extendedTextMessage?.text) editedBody = editedContent.extendedTextMessage.text;
+  return {
+    originalKey: {
+      id: key.id,
+      remoteJid: key.remoteJid,
+      fromMe: key.fromMe ?? false,
+    },
+    editedBody,
+  };
+}
+
 export class MessageService {
   async handleIncomingMessage(
     userId: string,
@@ -32,6 +53,53 @@ export class MessageService {
       // We should skip these messages as they'll arrive again with the proper JID
       if (normalizedRemoteJid.endsWith('@lid')) {
         console.warn(`${LOG_PREFIX} Skipping message with @lid JID: ${normalizedRemoteJid}`);
+        return;
+      }
+
+      // Handle message edit: update the original message instead of creating a new one
+      const editInfo = getMessageEditInfo(waMessage);
+      if (editInfo) {
+        const { originalKey, editedBody } = editInfo;
+        const originalJid = jidNormalizedUser(originalKey.remoteJid);
+        if (originalJid.endsWith('@lid')) return;
+        const contact = await contactService.getOrCreateContact(userId, originalJid);
+        const existing = await prisma.message.findFirst({
+          where: {
+            userId,
+            contactId: contact.id,
+            whatsappId: originalKey.id,
+          },
+          include: {
+            contact: {
+              select: { id: true, name: true, pushName: true, profilePicUrl: true },
+            },
+          },
+        });
+        if (existing) {
+          await prisma.message.update({
+            where: { id: existing.id },
+            data: {
+              body: editedBody ?? existing.body,
+              isEdited: true,
+            },
+          });
+          const updated = await prisma.message.findUnique({
+            where: { id: existing.id },
+            include: {
+              contact: {
+                select: { id: true, name: true, pushName: true, profilePicUrl: true },
+              },
+            },
+          });
+          if (updated) {
+            emitToUser(userId, 'message_updated', {
+              ...updated,
+              contact: updated.contact,
+            });
+          }
+          return { id: existing.id };
+        }
+        // Original message not found in DB (e.g. from before sync); skip creating a row for the edit event
         return;
       }
 

@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance } from "axios";
-import type { User, Contact, ContactStats, Message, WhatsAppStatusResponse, DashboardStats, UpcomingBirthday, ImportantDate } from "@/types";
+import type { User, Contact, ContactStats, Message, WhatsAppStatusResponse, DashboardStats, UpcomingBirthday, ImportantDate, Reminder, UpcomingReminder, ScheduledMessage } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -103,6 +103,26 @@ export const contactsApi = {
     okWithoutReply?: boolean;
   }) =>
     api.patch<Contact>(`/contacts/${id}`, data),
+  getReminders: (contactId: string) =>
+    api.get<{ reminders: Reminder[] }>(`/contacts/${contactId}/reminders`),
+  createReminder: (contactId: string, data: { dueDate: string; notes?: string | null }) =>
+    api.post<{ reminder: Reminder }>(`/contacts/${contactId}/reminders`, data),
+  updateReminder: (contactId: string, reminderId: string, data: { dueDate?: string; notes?: string | null }) =>
+    api.patch<{ reminder: Reminder }>(`/contacts/${contactId}/reminders/${reminderId}`, data),
+  deleteReminder: (contactId: string, reminderId: string) =>
+    api.delete<{ success: boolean }>(`/contacts/${contactId}/reminders/${reminderId}`),
+};
+
+// Scheduled messages
+export const scheduledMessagesApi = {
+  create: (data: { contactId: string; messageText: string; scheduledTime: string }) =>
+    api.post<{ scheduledMessage: ScheduledMessage }>("/api/scheduled-messages", data),
+  getByContact: (contactId: string) =>
+    api.get<{ scheduledMessages: ScheduledMessage[] }>(`/api/scheduled-messages/contact/${contactId}`),
+  update: (id: string, data: { messageText?: string; scheduledTime?: string }) =>
+    api.put<{ scheduledMessage: ScheduledMessage }>(`/api/scheduled-messages/${id}`, data),
+  delete: (id: string) =>
+    api.delete<{ success: boolean }>(`/api/scheduled-messages/${id}`),
 };
 
 // Conversations
@@ -219,6 +239,16 @@ export const dashboardApi = {
         params: { limit, offset },
       }
     ),
+  getToReplies: (limit?: number, offset?: number) =>
+    api.get<{ contacts: AwaitingReplyContact[]; total: number; hasMore: boolean }>(
+      "/api/dashboard/to-reply",
+      { params: { limit, offset } }
+    ),
+  getAwaitingReply: (limit?: number, offset?: number) =>
+    api.get<{ contacts: AwaitingReplyContact[]; total: number; hasMore: boolean }>(
+      "/api/dashboard/awaiting-reply",
+      { params: { limit, offset } }
+    ),
   getUpcomingBirthdays: (limit?: number, offset?: number) =>
     api.get<{ birthdays: UpcomingBirthday[]; total: number; hasMore: boolean }>(
       "/api/dashboard/upcoming-birthdays",
@@ -232,6 +262,11 @@ export const dashboardApi = {
       {
         params: { limit, offset },
       }
+    ),
+  getUpcomingReminders: (limit?: number, offset?: number) =>
+    api.get<{ reminders: UpcomingReminder[]; total: number; hasMore: boolean }>(
+      "/api/dashboard/upcoming-reminders",
+      { params: { limit, offset } }
     ),
 };
 

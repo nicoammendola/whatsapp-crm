@@ -269,6 +269,9 @@ export function MessageBubble({
                 }`}
             >
                 {format(new Date(message.timestamp), "HH:mm")}
+                {message.isEdited && (
+                  <span className="ml-1 opacity-80" title="Edited">(edited)</span>
+                )}
             </span>
           </div>
         </div>

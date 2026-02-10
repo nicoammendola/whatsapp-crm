@@ -3,7 +3,7 @@ import React from 'react';
 function SkeletonCard({ className = '' }: { className?: string }) {
   return (
     <div
-      className={`animate-pulse rounded-xl border-2 border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 ${className}`}
+      className={`animate-pulse rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 ${className}`}
     >
       {/* Title */}
       <div className="mb-4 h-6 w-1/2 rounded bg-zinc-200 dark:bg-zinc-700" />
@@ -31,7 +31,7 @@ function SkeletonGraphCard() {
 
 function SkeletonRelationshipHealthCard() {
   return (
-    <div className="animate-pulse rounded-xl border-2 border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+    <div className="animate-pulse rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
       {/* Title */}
       <div className="mb-4 flex items-center gap-2">
         <div className="h-5 w-5 rounded bg-zinc-200 dark:bg-zinc-700" />
@@ -48,7 +48,7 @@ function SkeletonRelationshipHealthCard() {
       {/* Status counters */}
       <div className="mb-4 grid grid-cols-2 gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700 lg:grid-cols-4">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="rounded-lg border-2 border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+          <div key={i} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
             <div className="mb-2 flex items-center justify-center gap-2">
               <div className="h-2 w-2 rounded-full bg-zinc-300 dark:bg-zinc-600" />
               <div className="h-4 w-20 rounded bg-zinc-200 dark:bg-zinc-700" />

@@ -10,6 +10,7 @@ import MessagesGraph from "./MessagesGraph";
 import ActiveContactsGraph from "./ActiveContactsGraph";
 import UpcomingBirthdaysCard from "./UpcomingBirthdaysCard";
 import UpcomingImportantDatesCard from "./UpcomingImportantDatesCard";
+import UpcomingRemindersCard from "./UpcomingRemindersCard";
 import RelationshipHealthCard from "./RelationshipHealthCard";
 import DashboardSkeleton from "./DashboardSkeleton";
 
@@ -200,6 +201,11 @@ export function DashboardHome() {
         <div className="animate-fade-in" style={{ animationDelay: '350ms' }}>
           <UpcomingImportantDatesCard dates={stats.upcomingImportantDates} />
         </div>
+      </div>
+
+      {/* Upcoming ping reminders - full width at bottom */}
+      <div className="animate-fade-in" style={{ animationDelay: '400ms' }}>
+        <UpcomingRemindersCard />
       </div>
     </div>
   );

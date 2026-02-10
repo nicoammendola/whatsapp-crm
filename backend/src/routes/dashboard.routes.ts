@@ -7,8 +7,11 @@ import {
   getOldestMessageDate,
   getContactsByHealthStatus,
   getAwaitingRepliesPaginated,
+  getToRepliesPaginated,
+  getAwaitingReplyPaginated,
   getUpcomingBirthdaysPaginated,
-  getUpcomingImportantDatesPaginated
+  getUpcomingImportantDatesPaginated,
+  getUpcomingRemindersPaginated
 } from '../controllers/dashboard.controller';
 
 const router = Router();
@@ -21,7 +24,10 @@ router.get('/active-contacts-graph', getActiveContactsGraphData);
 router.get('/oldest-message-date', getOldestMessageDate);
 router.get('/contacts-by-health-status', getContactsByHealthStatus);
 router.get('/awaiting-replies', getAwaitingRepliesPaginated);
+router.get('/to-reply', getToRepliesPaginated);
+router.get('/awaiting-reply', getAwaitingReplyPaginated);
 router.get('/upcoming-birthdays', getUpcomingBirthdaysPaginated);
 router.get('/upcoming-important-dates', getUpcomingImportantDatesPaginated);
+router.get('/upcoming-reminders', getUpcomingRemindersPaginated);
 
 export default router;

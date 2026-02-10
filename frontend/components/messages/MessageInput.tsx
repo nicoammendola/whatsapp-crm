@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { messagesApi } from "@/lib/api";
 import type { Message } from "@/types";
+import { ScheduleMessageModal } from "./ScheduleMessageModal";
 
 function buildOptimisticMessage(
   contactId: string,
@@ -32,15 +33,18 @@ export function MessageInput({
   onOptimisticMessage,
   onSendSuccess,
   onSendError,
+  onScheduled,
 }: {
   contactId: string;
   onOptimisticMessage?: (message: Message) => void;
   onSendSuccess?: (message: Message) => void;
   onSendError?: () => void;
+  onScheduled?: () => void;
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = async () => {
@@ -143,6 +147,26 @@ export function MessageInput({
           }}
         />
         
+        <button
+          type="button"
+          onClick={() => setScheduleOpen(true)}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          title="Schedule message"
+        >
+          <svg
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        </button>
         <div className="relative flex-1">
           <textarea
             value={text}
@@ -187,6 +211,17 @@ export function MessageInput({
           )}
         </button>
       </div>
+      <ScheduleMessageModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        contactId={contactId}
+        initialText={text}
+        onSuccess={() => {
+          setText("");
+          setScheduleOpen(false);
+          onScheduled?.();
+        }}
+      />
     </div>
   );
 }

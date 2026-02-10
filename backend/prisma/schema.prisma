@@ -21,6 +21,7 @@ model User {
   whatsAppSession WhatsAppSession?
   contacts        Contact[]
   messages        Message[]
+  reminders       Reminder[]
 
   @@map("users")
 }
@@ -80,7 +81,9 @@ model Contact {
   interactionCount30d Int? @default(0)
   interactionCount90d Int? @default(0)
 
-  messages        Message[]
+  messages           Message[]
+  reminders          Reminder[]
+  scheduledMessages  ScheduledMessage[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -131,6 +134,7 @@ model Message {
   // Metadata
   isRead      Boolean   @default(false)
   isDeleted   Boolean   @default(false)
+  isEdited    Boolean   @default(false)
 
   // Debug/Analysis: Store complete WAMessage from Baileys for debugging and future reprocessing
   rawMessage  Json?     @db.JsonB
@@ -157,6 +161,22 @@ model Reaction {
   @@map("reactions")
 }
 
+model Reminder {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  dueDate   DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, dueDate])
+  @@index([contactId])
+  @@map("reminders")
+}
+
 enum MessageType {
   TEXT
   IMAGE
@@ -168,4 +188,30 @@ enum MessageType {
   CONTACT
   POLL
   OTHER
+}
+
+enum ScheduledMessageStatus {
+  pending
+  sending
+  sent
+  failed
+  cancelled
+}
+
+model ScheduledMessage {
+  id            String                @id @default(cuid())
+  contactId     String
+  contact       Contact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messageText   String
+  scheduledTime DateTime              // UTC
+  status        ScheduledMessageStatus @default(pending)
+  errorMessage  String?
+  sentAt        DateTime?
+  retryCount    Int                   @default(0)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([contactId])
+  @@index([status, scheduledTime])
+  @@map("scheduled_messages")
 }

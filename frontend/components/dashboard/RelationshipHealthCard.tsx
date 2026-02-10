@@ -14,30 +14,19 @@ interface RelationshipHealthCardProps {
   health: RelationshipHealth;
 }
 
-type HealthStatus = "awaitingReply" | "needsAttention" | "atRisk" | "onTrack" | null;
+type HealthStatus = "toReply" | "awaitingReply" | "needsAttention" | "atRisk" | "onTrack" | null;
 
-const getScoreColor = (score: number) => {
-  if (score >= 80) return "text-green-600 dark:text-green-400";
-  if (score >= 60) return "text-yellow-600 dark:text-yellow-400";
-  return "text-red-600 dark:text-red-400";
-};
-
-const getScoreBgColor = (score: number) => {
-  if (score >= 80) return "bg-green-500";
-  if (score >= 60) return "bg-yellow-500";
-  return "bg-red-500";
-};
+const getScoreColor = () => "text-zinc-900 dark:text-zinc-100";
+const getScoreBgColor = () => "bg-zinc-500 dark:bg-zinc-400";
 
 const getStatusColor = (status: HealthStatus) => {
   switch (status) {
+    case "toReply":
     case "awaitingReply":
-      return "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800";
     case "onTrack":
-      return "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800";
     case "needsAttention":
-      return "text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800";
     case "atRisk":
-      return "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800";
+      return "border-zinc-300 bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-700";
     default:
       return "";
   }
@@ -67,28 +56,33 @@ const getContactInitial = (contact: HealthStatusContact | AwaitingReplyContact) 
 
 export default function RelationshipHealthCard({ health }: RelationshipHealthCardProps) {
   const router = useRouter();
-  const [selectedStatus, setSelectedStatus] = useState<HealthStatus>("awaitingReply");
+  const [selectedStatus, setSelectedStatus] = useState<HealthStatus>("toReply");
   const [contacts, setContacts] = useState<(HealthStatusContact | AwaitingReplyContact)[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [toReplyCount, setToReplyCount] = useState(0);
   const [awaitingReplyCount, setAwaitingReplyCount] = useState(0);
 
-  const scoreColor = getScoreColor(health.score);
-  const scoreBgColor = getScoreBgColor(health.score);
+  const scoreColor = getScoreColor();
+  const scoreBgColor = getScoreBgColor();
 
-  // Load awaiting reply count on mount
+  // Load To reply and Awaiting reply counts on mount
   useEffect(() => {
-    const loadAwaitingReplyCount = async () => {
+    const loadCounts = async () => {
       try {
-        const response = await dashboardApi.getAwaitingReplies(1, 0);
-        setAwaitingReplyCount(response.data.total);
+        const [toReplyRes, awaitingReplyRes] = await Promise.all([
+          dashboardApi.getToReplies(1, 0),
+          dashboardApi.getAwaitingReply(1, 0),
+        ]);
+        setToReplyCount(toReplyRes.data.total);
+        setAwaitingReplyCount(awaitingReplyRes.data.total);
       } catch (error) {
-        console.error("Failed to load awaiting reply count:", error);
+        console.error("Failed to load reply counts:", error);
       }
     };
-    loadAwaitingReplyCount();
+    loadCounts();
   }, []);
 
   useEffect(() => {
@@ -107,8 +101,13 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
     setLoading(true);
     try {
       const offset = page * PAGE_SIZE;
-      if (status === "awaitingReply") {
-        const response = await dashboardApi.getAwaitingReplies(PAGE_SIZE, offset);
+      if (status === "toReply") {
+        const response = await dashboardApi.getToReplies(PAGE_SIZE, offset);
+        setContacts(response.data.contacts);
+        setTotal(response.data.total);
+        setHasMore(response.data.hasMore);
+      } else if (status === "awaitingReply") {
+        const response = await dashboardApi.getAwaitingReply(PAGE_SIZE, offset);
         setContacts(response.data.contacts);
         setTotal(response.data.total);
         setHasMore(response.data.hasMore);
@@ -159,9 +158,12 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
       if (selectedStatus) {
         loadContacts(selectedStatus, currentPage);
       }
-      // Update awaiting reply count if we're in that section
-      if (selectedStatus === "awaitingReply") {
-        const response = await dashboardApi.getAwaitingReplies(1, 0);
+      // Refresh count for current section after toggle
+      if (selectedStatus === "toReply") {
+        const response = await dashboardApi.getToReplies(1, 0);
+        setToReplyCount(response.data.total);
+      } else if (selectedStatus === "awaitingReply") {
+        const response = await dashboardApi.getAwaitingReply(1, 0);
         setAwaitingReplyCount(response.data.total);
       }
     } catch (error) {
@@ -194,18 +196,37 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
           </div>
         </div>
 
-        {/* Status Counters - Awaiting reply first, then Need attention, At risk, On track */}
-        <div className="grid grid-cols-2 gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700 lg:grid-cols-4">
+        {/* Status Counters: To reply, Awaiting reply, Need attention, At risk, On track */}
+        <div className="grid grid-cols-2 gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700 sm:grid-cols-3 lg:grid-cols-5">
+          <button
+            onClick={() => handleStatusClick("toReply")}
+            className={`rounded-lg border p-3 text-center transition-all ${
+              selectedStatus === "toReply"
+                ? getStatusColor("toReply")
+                : "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800"
+            }`}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                To reply
+              </span>
+            </div>
+            <p className="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+              {toReplyCount}
+            </p>
+          </button>
+
           <button
             onClick={() => handleStatusClick("awaitingReply")}
-            className={`rounded-lg border-2 p-3 text-center transition-all hover:shadow-md ${
+            className={`rounded-lg border p-3 text-center transition-all ${
               selectedStatus === "awaitingReply"
                 ? getStatusColor("awaitingReply")
                 : "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800"
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-blue-500" />
+              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Awaiting reply
               </span>
@@ -217,14 +238,14 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
 
           <button
             onClick={() => handleStatusClick("needsAttention")}
-            className={`rounded-lg border-2 p-3 text-center transition-all hover:shadow-md ${
+            className={`rounded-lg border p-3 text-center transition-all ${
               selectedStatus === "needsAttention"
                 ? getStatusColor("needsAttention")
                 : "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800"
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-yellow-500" />
+              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Need attention
               </span>
@@ -236,14 +257,14 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
 
           <button
             onClick={() => handleStatusClick("atRisk")}
-            className={`rounded-lg border-2 p-3 text-center transition-all hover:shadow-md ${
+            className={`rounded-lg border p-3 text-center transition-all ${
               selectedStatus === "atRisk"
                 ? getStatusColor("atRisk")
                 : "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800"
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-red-500" />
+              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 At risk
               </span>
@@ -255,14 +276,14 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
 
           <button
             onClick={() => handleStatusClick("onTrack")}
-            className={`rounded-lg border-2 p-3 text-center transition-all hover:shadow-md ${
+            className={`rounded-lg border p-3 text-center transition-all ${
               selectedStatus === "onTrack"
                 ? getStatusColor("onTrack")
                 : "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800"
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-green-500" />
+              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 On track
               </span>
@@ -278,6 +299,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
           <div className="border-t border-zinc-200 pt-4 dark:border-zinc-700">
             <div className="mb-3 flex items-center justify-between">
               <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                {selectedStatus === "toReply" && "To Reply"}
                 {selectedStatus === "awaitingReply" && "Awaiting Reply"}
                 {selectedStatus === "onTrack" && "On Track Contacts"}
                 {selectedStatus === "needsAttention" && "Contacts Needing Attention"}
@@ -340,13 +362,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
                               {(selectedStatus === "needsAttention" || selectedStatus === "atRisk") &&
                                 "daysOverdue" in contact &&
                                 contact.daysOverdue !== undefined && (
-                                  <span
-                                    className={`flex-shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${
-                                      contact.daysOverdue > 30
-                                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                        : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
-                                    }`}
-                                  >
+                                  <span className="flex-shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">
                                     {contact.daysOverdue} days overdue
                                   </span>
                                 )}
@@ -369,15 +385,15 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
                           <ChevronRight className="h-4 w-4 flex-shrink-0 text-zinc-400 dark:text-zinc-500" />
                         </button>
 
-                        {/* OK Without Reply Toggle - Only show for awaiting reply section */}
-                        {selectedStatus === "awaitingReply" && (
+                        {/* OK Without Reply Toggle - show for To reply and Awaiting reply */}
+                        {(selectedStatus === "toReply" || selectedStatus === "awaitingReply") && (
                           <button
                             onClick={(e) => handleToggleOkWithoutReply(e, contact.id, isOkWithoutReply)}
                             className="flex-shrink-0 rounded p-1.5 transition-colors hover:bg-zinc-200 dark:hover:bg-zinc-700"
                             title={isOkWithoutReply ? "Mark as needs reply" : "Mark as OK without reply"}
                           >
                             {isOkWithoutReply ? (
-                              <CheckCircle2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              <CheckCircle2 className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
                             ) : (
                               <Circle className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                             )}
@@ -419,8 +435,8 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
 
         {/* Top Suggestion */}
         {health.topSuggestion && !selectedStatus && (
-          <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-950">
-            <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100">
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
               💡 {health.topSuggestion}
             </p>
           </div>

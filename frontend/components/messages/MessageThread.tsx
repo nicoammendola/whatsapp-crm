@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { messagesApi, whatsappApi } from "@/lib/api";
+import { messagesApi, whatsappApi, scheduledMessagesApi } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useSocket } from "@/lib/socket";
 import { supabase } from "@/lib/supabase";
 import type { Message } from "@/types";
-import type { Contact } from "@/types";
+import type { Contact, ScheduledMessage } from "@/types";
 import { MessageBubble } from "./MessageBubble";
+import { ScheduledMessageBubble } from "./ScheduledMessageBubble";
 import { MessageInput } from "./MessageInput";
 import { format } from "date-fns";
 
@@ -35,10 +36,48 @@ export function MessageThread({
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [scheduledList, setScheduledList] = useState<ScheduledMessage[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
   const syncedRef = useRef(false); // Track if we've already synced for this contact
+
+  const loadScheduled = useCallback(async () => {
+    try {
+      const res = await scheduledMessagesApi.getByContact(contactId);
+      const list = (res.data?.scheduledMessages ?? []).filter(
+        (m) => m.status !== "cancelled"
+      );
+      setScheduledList(list);
+    } catch {
+      setScheduledList([]);
+    }
+  }, [contactId]);
+
+  useEffect(() => {
+    loadScheduled();
+  }, [loadScheduled]);
+
+  // Real-time updates for scheduled messages (Supabase)
+  useEffect(() => {
+    if (!supabase || !contactId) return;
+    const channel = supabase
+      .channel(`scheduled_messages_thread:${contactId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "scheduled_messages",
+          filter: `contactId=eq.${contactId}`,
+        },
+        loadScheduled
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [contactId, loadScheduled]);
 
   const loadInitial = useCallback(async () => {
     setLoading(true);
@@ -58,42 +97,28 @@ export function MessageThread({
         setSyncing(true);
         
         try {
-          console.log('🎯 No messages found for contact, checking WhatsApp connection...');
-          
           // Check if WhatsApp is connected before attempting sync
           const statusRes = await whatsappApi.getStatus();
           if (!statusRes.data.connected) {
-            console.log('❌ WhatsApp not connected, skipping message sync');
             setSyncing(false);
             return;
           }
           
-          console.log('✅ WhatsApp connected, triggering targeted history sync for contact:', contactId);
-          
-          // Sync messages from WhatsApp
+          // Try to sync messages from WhatsApp
           await messagesApi.syncContactMessages(contactId, 100);
           
-          console.log('✅ Sync request sent, waiting for reconnection and history sync...');
-          
-          // Wait longer for reconnection and messages to be processed via events
-          // Targeted sync triggers a reconnection which may take 5-10 seconds
-          await new Promise(resolve => setTimeout(resolve, 8000));
-          
-          console.log('⏰ Wait complete, reloading messages...');
+          // Wait a moment for messages to be processed
+          await new Promise(resolve => setTimeout(resolve, 1000));
           
           // Reload messages
           const retryRes = await messagesApi.getByContact(contactId, { limit: PAGE_SIZE, offset: 0 });
           const retryList = retryRes.data?.messages ?? [];
           setMessages(retryList.reverse());
           setHasMore(retryList.length === PAGE_SIZE);
-          
-          console.log(`📬 Loaded ${retryList.length} messages after sync`);
         } catch (syncError: any) {
-          console.error('❌ Sync error:', syncError);
-          // If it's a 503 (not connected), don't show error - just silently fail
-          // Other errors are also silently handled as messages may sync automatically later
+          // Silently handle errors - messages may sync automatically later
           if (syncError.response?.status !== 503) {
-            console.warn('⚠️ Message sync failed:', syncError.response?.data?.error || syncError.message);
+            console.warn('Message sync failed:', syncError.response?.data?.error || syncError.message);
           }
         } finally {
           setSyncing(false);
@@ -201,10 +226,19 @@ export function MessageThread({
       });
     };
 
+    const handleMessageUpdated = (messageData: Message) => {
+      if (messageData.contactId !== contactId) return;
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageData.id ? { ...m, ...messageData } : m))
+      );
+    };
+
     socket.on("new_message", handleNewMessage);
+    socket.on("message_updated", handleMessageUpdated);
 
     return () => {
       socket.off("new_message", handleNewMessage);
+      socket.off("message_updated", handleMessageUpdated);
     };
   }, [socket, contactId, loading]);
 
@@ -282,6 +316,28 @@ export function MessageThread({
     return () => el.removeEventListener("scroll", handleScroll);
   }, [hasMore, loading, loadingMore, loadOlder]);
 
+  type TimelineItem =
+    | { type: "message"; id: string; timestamp: string; message: Message }
+    | { type: "scheduled"; id: string; timestamp: string; scheduled: ScheduledMessage };
+
+  const timelineItems: TimelineItem[] = [
+    ...messages.map((msg) => ({
+      type: "message" as const,
+      id: msg.id,
+      timestamp: msg.timestamp,
+      message: msg,
+    })),
+    ...scheduledList.map((sm) => ({
+      type: "scheduled" as const,
+      id: sm.id,
+      timestamp:
+        sm.status === "sent" && sm.sentAt ? sm.sentAt : sm.scheduledTime,
+      scheduled: sm,
+    })),
+  ].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
   let lastDate: string | null = null;
 
   return (
@@ -307,30 +363,35 @@ export function MessageThread({
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
               </div>
             )}
-            {messages.length === 0 ? (
+            {timelineItems.length === 0 ? (
               <div className="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
                 {syncing ? (
                   <div className="flex flex-col items-center gap-2">
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-                    <span>Syncing messages...</span>
+                    <span>Checking for messages...</span>
                   </div>
                 ) : (
                   "No messages yet with this contact."
                 )}
               </div>
             ) : (
-              messages.map((msg) => {
-                const msgDate = format(new Date(msg.timestamp), "yyyy-MM-dd");
+              timelineItems.map((item) => {
+                const ts = item.timestamp;
+                const msgDate = format(new Date(ts), "yyyy-MM-dd");
                 const showDate = lastDate !== msgDate;
                 if (showDate) lastDate = msgDate;
                 return (
-                  <div key={msg.id}>
+                  <div key={item.id}>
                     {showDate && (
                       <div className="my-3 text-center text-xs text-zinc-500 dark:text-zinc-400">
-                        {format(new Date(msg.timestamp), "PPP")}
+                        {format(new Date(ts), "PPP")}
                       </div>
                     )}
-                    <MessageBubble message={msg} contact={contact} />
+                    {item.type === "message" ? (
+                      <MessageBubble message={item.message} contact={contact} />
+                    ) : (
+                      <ScheduledMessageBubble scheduled={item.scheduled} />
+                    )}
                   </div>
                 );
               })
@@ -344,6 +405,7 @@ export function MessageThread({
         onOptimisticMessage={addOptimisticMessage}
         onSendSuccess={replaceWithServerMessage}
         onSendError={removeOptimisticOnError}
+        onScheduled={loadScheduled}
       />
     </div>
   );

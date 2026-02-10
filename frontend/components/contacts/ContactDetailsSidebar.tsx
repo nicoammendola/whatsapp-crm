@@ -8,6 +8,7 @@ import { StatsSection } from "./StatsSection";
 import { InfoSection } from "./InfoSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
 import { NotesSection } from "./NotesSection";
+import { ScheduledMessagesSection } from "./ScheduledMessagesSection";
 
 interface ContactDetailsSidebarProps {
   contactId: string;
@@ -120,6 +121,7 @@ export function ContactDetailsSidebar({ contactId }: ContactDetailsSidebarProps)
       <InfoSection contact={contact} onUpdate={handleUpdate} />
       <CustomFieldsSection contact={contact} onUpdate={handleUpdate} />
       <NotesSection contact={contact} onUpdate={handleUpdate} />
+      <ScheduledMessagesSection contactId={contactId} />
     </div>
   );
 }

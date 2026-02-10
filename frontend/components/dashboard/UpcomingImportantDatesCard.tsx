@@ -23,18 +23,8 @@ const getDaysUntilText = (daysUntil: number) => {
   return `In ${daysUntil} days`;
 };
 
-const getUrgencyStyle = (daysUntil: number) => {
-  if (daysUntil === 0) {
-    return 'bg-gradient-to-r from-pink-50 to-rose-50 border-pink-300 dark:from-pink-950 dark:to-rose-950 dark:border-pink-700';
-  }
-  if (daysUntil <= 7) {
-    return 'border-red-200 dark:border-red-800';
-  }
-  if (daysUntil <= 14) {
-    return 'border-yellow-200 dark:border-yellow-800';
-  }
-  return 'border-green-200 dark:border-green-800';
-};
+const getItemStyle = () =>
+  'border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700';
 
 export default function UpcomingImportantDatesCard({ dates: initialDates }: UpcomingImportantDatesCardProps) {
   const [dates, setDates] = useState<ImportantDate[]>(initialDates);
@@ -80,13 +70,11 @@ export default function UpcomingImportantDatesCard({ dates: initialDates }: Upco
   }
 
   const displayDates = dates;
-  const todayDates = dates.filter(d => d.daysUntil === 0);
 
   return (
     <DashboardCard
       title="Upcoming Important Dates"
       icon={<Heart className="h-5 w-5" />}
-      urgency={todayDates.length > 0 ? 'high' : dates[0]?.urgency || 'low'}
     >
       {loading ? (
         <div className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
@@ -99,7 +87,7 @@ export default function UpcomingImportantDatesCard({ dates: initialDates }: Upco
               <Link
                 key={`${date.contactId}-${date.fieldName}-${index}`}
                 href={`/dashboard/conversations/${date.contactId}`}
-                className={`block rounded-lg border-2 p-3 transition-all hover:shadow-md ${getUrgencyStyle(date.daysUntil)}`}
+                className={`block rounded-lg p-3 transition-colors ${getItemStyle()}`}
               >
                 <div className="flex items-center justify-between">
                   <div>
@@ -119,7 +107,7 @@ export default function UpcomingImportantDatesCard({ dates: initialDates }: Upco
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className={`text-sm font-medium ${date.daysUntil === 0 ? 'text-rose-700 dark:text-rose-300' : 'text-zinc-700 dark:text-zinc-300'}`}>
+                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                       {getDaysUntilText(date.daysUntil)}
                     </p>
                   </div>

@@ -227,6 +227,8 @@ export class BaileysService {
           
           // Start tracking sync - will complete when history sync finishes or after timeout
           this.startSyncTracking(userId);
+          // Robust sync: backward fill (24h lookback) + last 300 messages for recent chats
+          void this.runConnectionSync(userId, sock);
         }
       });
 
@@ -422,12 +424,76 @@ export class BaileysService {
           
           // Start tracking sync - will complete when history sync finishes or after timeout
           this.startSyncTracking(userId);
+          // Robust sync: backward fill (24h lookback) + last 300 messages for recent chats
+          void this.runConnectionSync(userId, sock);
         }
       });
 
       sock.ev.on('creds.update', saveCreds);
       this.setupMessageHandlers(userId, sock, lastSyncTimestamp);
     });
+  }
+
+  /**
+   * On connection: request on-demand history so we catch messages missed while
+   * disconnected (e.g. new contacts, new conversations).
+   * Phase 1 (24h lookback): If our last message in DB is older than 24h (or we have none),
+   * we run the fetch. Phase 2: Always request last 50 messages for top 6 chats (≈300 messages)
+   * to fill any gaps. Results arrive via messaging-history.set.
+   */
+  private async runConnectionSync(userId: string, sock: WASocket): Promise<void> {
+    try {
+      const connectionTime = new Date();
+      const lookbackMs = 24 * 60 * 60 * 1000;
+      const lookbackTime = new Date(connectionTime.getTime() - lookbackMs);
+
+      const lastMessageTimestamp = await messageService.getLatestMessageTimestamp(userId);
+      const lastMessageOlderThan24h =
+        !lastMessageTimestamp || lastMessageTimestamp < lookbackTime;
+
+      const RECENT_CHATS_LIMIT = 6;
+      const MESSAGES_PER_CHAT = 50;
+      const refs = await messageService.getRecentConversationRefs(userId, RECENT_CHATS_LIMIT);
+
+      if (refs.length === 0) {
+        log(userId, 'connection sync: no conversations yet, nothing to fetch');
+        return;
+      }
+
+      if (!lastMessageOlderThan24h) {
+        log(userId, 'connection sync: last message within 24h; still fetching last 300 for recent chats');
+      } else {
+        log(userId, 'connection sync: last message older than 24h (or none) - fetching history for recent chats');
+      }
+
+      log(
+        userId,
+        `connection sync: fetching up to ${MESSAGES_PER_CHAT * refs.length} messages (${refs.length} chats, 50 each)`
+      );
+
+      for (let i = 0; i < refs.length; i++) {
+        const { key, timestampSec } = refs[i];
+        try {
+          await sock.fetchMessageHistory(MESSAGES_PER_CHAT, key, timestampSec);
+          log(userId, `connection sync: requested history for ${key.remoteJid} (${i + 1}/${refs.length})`);
+        } catch (fetchErr: unknown) {
+          const err = fetchErr as { output?: { statusCode?: number }; message?: string };
+          const code = err?.output?.statusCode;
+          const msg = err?.message ?? 'unknown';
+          log(userId, `connection sync: fetchMessageHistory failed for ${key.remoteJid}: ${msg}`);
+          if (code === 479) {
+            log(userId, 'WhatsApp rejected history (479) - may be rate limit or invalid reference');
+          }
+        }
+        if (i < refs.length - 1) {
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+
+      log(userId, 'connection sync: requests sent; messages will arrive via messaging-history.set');
+    } catch (err) {
+      console.error(`${LOG_PREFIX} runConnectionSync error:`, err);
+    }
   }
 
   private setupMessageHandlers(userId: string, sock: WASocket, lastSyncTimestamp: number | null): void {

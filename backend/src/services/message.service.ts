@@ -14,6 +14,19 @@ import mime from 'mime-types';
 
 const LOG_PREFIX = '[Message]';
 
+/** Log when a message is skipped/dropped (for debugging; excludes normal duplicate) */
+function logMessageSkipped(
+  userId: string,
+  reason: string,
+  extra?: { messageId?: string; remoteJid?: string; typeKey?: string }
+): void {
+  const parts = [`${LOG_PREFIX} Skipped message userId=${userId} reason=${reason}`];
+  if (extra?.messageId) parts.push(`messageId=${extra.messageId}`);
+  if (extra?.remoteJid) parts.push(`remoteJid=${extra.remoteJid}`);
+  if (extra?.typeKey) parts.push(`typeKey=${extra.typeKey}`);
+  console.warn(parts.join(' '));
+}
+
 /** Payload shape for WhatsApp message edit (editedMessage wrapper with protocolMessage) */
 function getMessageEditInfo(waMessage: WAMessage): { originalKey: { id: string; remoteJid: string; fromMe: boolean }; editedBody: string | null } | null {
   const edited = (waMessage.message as any)?.editedMessage?.message?.protocolMessage;
@@ -44,7 +57,10 @@ export class MessageService {
     try {
       const messageId = waMessage.key.id;
       const remoteJid = waMessage.key.remoteJid;
-      if (!messageId || !remoteJid) return;
+      if (!messageId || !remoteJid) {
+        logMessageSkipped(userId, 'missing_key', { messageId: messageId ?? undefined, remoteJid: remoteJid ?? undefined });
+        return;
+      }
 
       const fromMe = waMessage.key.fromMe ?? false;
       let normalizedRemoteJid = jidNormalizedUser(remoteJid);
@@ -52,7 +68,7 @@ export class MessageService {
       // Handle @lid (Local ID) JIDs - these are temporary IDs that WhatsApp uses
       // We should skip these messages as they'll arrive again with the proper JID
       if (normalizedRemoteJid.endsWith('@lid')) {
-        console.warn(`${LOG_PREFIX} Skipping message with @lid JID: ${normalizedRemoteJid}`);
+        logMessageSkipped(userId, 'lid_jid', { messageId, remoteJid: normalizedRemoteJid });
         return;
       }
 
@@ -100,6 +116,7 @@ export class MessageService {
           return { id: existing.id };
         }
         // Original message not found in DB (e.g. from before sync); skip creating a row for the edit event
+        logMessageSkipped(userId, 'edit_original_not_found', { messageId: editInfo.originalKey.id, remoteJid: originalJid });
         return;
       }
 
@@ -121,9 +138,15 @@ export class MessageService {
       // Note: Baileys emits 'messages.reaction' separately, so we can ignore reactionMessage here to avoid dupes
       if (messageType === 'OTHER') {
           const typeKey = getContentType(content);
-          if (typeKey === 'reactionMessage') return;
+          if (typeKey === 'reactionMessage') {
+            logMessageSkipped(userId, 'reaction_message', { messageId, remoteJid: normalizedRemoteJid, typeKey: 'reactionMessage' });
+            return;
+          }
           // Skip poll votes/updates - they're encrypted and don't add CRM value
-          if (typeKey === 'pollUpdateMessage') return;
+          if (typeKey === 'pollUpdateMessage') {
+            logMessageSkipped(userId, 'poll_update_message', { messageId, remoteJid: normalizedRemoteJid, typeKey: 'pollUpdateMessage' });
+            return;
+          }
       }
 
       const contact = await contactService.getOrCreateContact(userId, normalizedRemoteJid);
@@ -735,6 +758,46 @@ export class MessageService {
       select: { timestamp: true },
     });
     return latest?.timestamp ?? null;
+  }
+
+  /**
+   * Get recent conversation refs for on-demand history fetch.
+   * Returns one latest message per contact (by most recent message), up to `limit` contacts.
+   * Used to call fetchMessageHistory(50, key, ts) per chat to pull in last ~300 messages (50 × 6 chats).
+   */
+  async getRecentConversationRefs(
+    userId: string,
+    limit: number
+  ): Promise<Array<{ whatsappId: string; key: { id: string; remoteJid: string; fromMe: boolean }; timestampSec: number }>> {
+    const messages = await prisma.message.findMany({
+      where: { userId },
+      orderBy: { timestamp: 'desc' },
+      take: 500,
+      select: {
+        contactId: true,
+        whatsappId: true,
+        fromMe: true,
+        timestamp: true,
+        contact: { select: { whatsappId: true } },
+      },
+    });
+    const seenContacts = new Set<string>();
+    const refs: Array<{ whatsappId: string; key: { id: string; remoteJid: string; fromMe: boolean }; timestampSec: number }> = [];
+    for (const m of messages) {
+      if (seenContacts.has(m.contactId) || !m.contact.whatsappId) continue;
+      seenContacts.add(m.contactId);
+      refs.push({
+        whatsappId: m.contact.whatsappId,
+        key: {
+          id: m.whatsappId,
+          remoteJid: m.contact.whatsappId,
+          fromMe: m.fromMe,
+        },
+        timestampSec: Math.floor(m.timestamp.getTime() / 1000),
+      });
+      if (refs.length >= limit) break;
+    }
+    return refs;
   }
 }
 

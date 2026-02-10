@@ -7,12 +7,20 @@ import api from "@/lib/api";
 const HEARTBEAT_INTERVAL = 45000; // 45 seconds
 const INITIAL_HEARTBEAT_DELAY = 1000; // 1 second after mount
 
+/** Response shape from POST /whatsapp/heartbeat */
+interface HeartbeatResponse {
+  data?: { success?: boolean; connected?: boolean; message?: string };
+}
+
 /**
  * WhatsApp Connection Hook
- * 
+ *
  * Sends periodic heartbeats to the backend to indicate the CRM is open.
  * Backend will connect/disconnect WhatsApp based on these heartbeats.
- * 
+ *
+ * When the CRM is open and WhatsApp is connected, syncs contacts once per
+ * session so new contacts (e.g. added on the phone) appear in the CRM.
+ *
  * Mimics WhatsApp Desktop behavior:
  * - Backend connects when CRM is open
  * - Backend disconnects when CRM is closed (no heartbeat for 2 minutes)
@@ -22,6 +30,7 @@ export function useWhatsAppConnection() {
   const { user, token } = useAuthStore();
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isUnmountingRef = useRef(false);
+  const hasSyncedContactsRef = useRef(false);
 
   useEffect(() => {
     if (!user || !token) {
@@ -29,6 +38,7 @@ export function useWhatsAppConnection() {
     }
 
     isUnmountingRef.current = false;
+    hasSyncedContactsRef.current = false;
 
     const sendHeartbeat = async () => {
       if (isUnmountingRef.current) {
@@ -36,8 +46,16 @@ export function useWhatsAppConnection() {
       }
 
       try {
-        // API interceptors will automatically add the Authorization header
-        await api.post("/whatsapp/heartbeat");
+        const res = (await api.post("/whatsapp/heartbeat")) as HeartbeatResponse;
+        const connected = res?.data?.connected === true;
+
+        // Sync contacts once per session when we're connected (e.g. new contacts from phone)
+        if (connected && !hasSyncedContactsRef.current) {
+          hasSyncedContactsRef.current = true;
+          api.post("/whatsapp/sync-contacts").catch(() => {
+            hasSyncedContactsRef.current = false; // allow retry later
+          });
+        }
       } catch (error) {
         // Don't log errors if we're unmounting
         if (!isUnmountingRef.current) {

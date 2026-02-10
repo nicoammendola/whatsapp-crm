@@ -76,8 +76,8 @@ export class ScheduledMessageService {
       updateData.scheduledTime = data.scheduledTime;
     }
 
-    if (existing.status !== 'pending' && existing.status !== 'failed') {
-      throw new Error('Only pending or failed messages can be updated');
+    if (existing.status !== 'pending' && existing.status !== 'failed' && existing.status !== 'llmSuggested') {
+      throw new Error('Only pending, failed, or LLM-suggested messages can be updated');
     }
 
     return prisma.scheduledMessage.update({

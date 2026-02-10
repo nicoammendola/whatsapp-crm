@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Clock, Pencil, Trash2 } from "lucide-react";
+import { Clock, Pencil, Trash2, Plus } from "lucide-react";
 import { scheduledMessagesApi } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import type { ScheduledMessage } from "@/types";
@@ -19,6 +19,7 @@ export function ScheduledMessagesSection({ contactId, onCountChange }: Scheduled
   const [list, setList] = useState<ScheduledMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -132,20 +133,36 @@ export function ScheduledMessagesSection({ contactId, onCountChange }: Scheduled
     setEditId(id);
   };
 
+  const handleCreateSuccess = () => {
+    setCreateOpen(false);
+    load();
+    window.dispatchEvent(new CustomEvent("scheduled-message-created", { detail: { contactId } }));
+  };
+
   const editItem = editId ? list.find((m) => m.id === editId) : null;
 
   return (
     <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          <Clock className="h-4 w-4" />
+          Scheduled messages
+        </div>
+        <button
+          type="button"
+          onClick={() => setCreateOpen(true)}
+          className="flex items-center gap-1 rounded-lg border border-emerald-600 bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 dark:border-emerald-500 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Schedule message
+        </button>
+      </div>
       {loading ? (
         <div className="text-xs text-zinc-400 dark:text-zinc-500">Loading scheduled messages...</div>
       ) : list.length === 0 ? (
         <div className="text-xs text-zinc-400 dark:text-zinc-500">No scheduled messages</div>
       ) : (
         <>
-          <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            <Clock className="h-4 w-4" />
-            Scheduled messages
-          </div>
       <ul className="space-y-2">
         {list.map((m) => {
           if (m.status === "llmSuggested") {
@@ -234,6 +251,12 @@ export function ScheduledMessagesSection({ contactId, onCountChange }: Scheduled
           onSuccess={handleUpdate}
         />
       )}
+      <ScheduleMessageModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        contactId={contactId}
+        onSuccess={handleCreateSuccess}
+      />
     </div>
   );
 }

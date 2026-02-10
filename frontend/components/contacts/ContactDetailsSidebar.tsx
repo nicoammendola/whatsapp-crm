@@ -3,22 +3,28 @@
 import { useEffect, useState } from "react";
 import { contactsApi } from "@/lib/api";
 import type { Contact, ContactStats } from "@/types";
-import { ContactHeader } from "./ContactHeader";
 import { StatsSection } from "./StatsSection";
 import { InfoSection } from "./InfoSection";
 import { CustomFieldsSection } from "./CustomFieldsSection";
 import { NotesSection } from "./NotesSection";
 import { ScheduledMessagesSection } from "./ScheduledMessagesSection";
+import { AIInsightsCard } from "./AIInsightsCard";
+import { RemindersSection } from "./RemindersSection";
+import { TagsSection } from "./TagsSection";
 
 interface ContactDetailsSidebarProps {
   contactId: string;
 }
+
+type TabType = "info" | "activity" | "ai" | "scheduled";
 
 export function ContactDetailsSidebar({ contactId }: ContactDetailsSidebarProps) {
   const [contact, setContact] = useState<Contact | null>(null);
   const [stats, setStats] = useState<ContactStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabType>("info");
+  const [scheduledCount, setScheduledCount] = useState(0);
 
   // Fetch contact + stats on mount
   useEffect(() => {
@@ -96,6 +102,28 @@ export function ContactDetailsSidebar({ contactId }: ContactDetailsSidebarProps)
     }
   };
 
+  const refetchContact = async () => {
+    try {
+      const res = await contactsApi.getById(contactId);
+      const c = (res.data as { contact?: Contact })?.contact ?? (res.data as Contact);
+      setContact(c);
+    } catch (err) {
+      console.error("Failed to refetch contact:", err);
+    }
+  };
+
+  const handleScheduledCountChange = (count: number) => {
+    setScheduledCount(count);
+  };
+
+  const handleAnalysisComplete = async () => {
+    await refetchContact();
+    // Trigger scheduled messages refresh by switching to scheduled tab and triggering event
+    window.dispatchEvent(new CustomEvent("scheduled-message-created", { detail: { contactId } }));
+    // Also switch to scheduled tab to show the new suggestion
+    setActiveTab("scheduled");
+  };
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center p-6">
@@ -115,13 +143,82 @@ export function ContactDetailsSidebar({ contactId }: ContactDetailsSidebarProps)
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <ContactHeader contact={contact} onUpdate={handleUpdate} />
-      <StatsSection stats={stats} />
-      <InfoSection contact={contact} onUpdate={handleUpdate} />
-      <CustomFieldsSection contact={contact} onUpdate={handleUpdate} />
-      <NotesSection contact={contact} onUpdate={handleUpdate} />
-      <ScheduledMessagesSection contactId={contactId} />
+    <div className="flex h-full flex-col">
+      {/* Tabs */}
+      <div className="border-b border-zinc-200 px-4 pt-4 dark:border-zinc-700">
+        <div className="flex flex-wrap gap-1">
+          <button
+            onClick={() => setActiveTab("info")}
+            className={`px-3 py-2 text-sm font-medium transition-colors ${
+              activeTab === "info"
+                ? "border-b-2 border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400"
+                : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            }`}
+          >
+            Info
+          </button>
+          <button
+            onClick={() => setActiveTab("activity")}
+            className={`px-3 py-2 text-sm font-medium transition-colors ${
+              activeTab === "activity"
+                ? "border-b-2 border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400"
+                : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            }`}
+          >
+            Activity
+          </button>
+          {!contact.isGroup && (
+            <button
+              onClick={() => setActiveTab("ai")}
+              className={`px-3 py-2 text-sm font-medium transition-colors ${
+                activeTab === "ai"
+                  ? "border-b-2 border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400"
+                  : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              }`}
+            >
+              AI Assistant
+            </button>
+          )}
+          <button
+            onClick={() => setActiveTab("scheduled")}
+            className={`px-3 py-2 text-sm font-medium transition-colors ${
+              activeTab === "scheduled"
+                ? "border-b-2 border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400"
+                : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            }`}
+          >
+            Scheduled {scheduledCount > 0 && `(${scheduledCount})`}
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {activeTab === "info" && (
+          <div className="space-y-6">
+            <RemindersSection contactId={contactId} />
+            <TagsSection contact={contact} onUpdate={handleUpdate} />
+            <InfoSection contact={contact} onUpdate={handleUpdate} />
+            <CustomFieldsSection contact={contact} onUpdate={handleUpdate} />
+            <NotesSection contact={contact} onUpdate={handleUpdate} />
+          </div>
+        )}
+        {activeTab === "activity" && (
+          <div>
+            <StatsSection stats={stats} />
+          </div>
+        )}
+        {activeTab === "ai" && !contact.isGroup && (
+          <div>
+            <AIInsightsCard contact={contact} onAnalysisComplete={handleAnalysisComplete} />
+          </div>
+        )}
+        {activeTab === "scheduled" && (
+          <div>
+            <ScheduledMessagesSection contactId={contactId} onCountChange={handleScheduledCountChange} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

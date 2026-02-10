@@ -11,7 +11,8 @@ import {
   getAwaitingReplyPaginated,
   getUpcomingBirthdaysPaginated,
   getUpcomingImportantDatesPaginated,
-  getUpcomingRemindersPaginated
+  getUpcomingRemindersPaginated,
+  getUpcomingScheduledMessagesPaginated
 } from '../controllers/dashboard.controller';
 
 const router = Router();
@@ -29,5 +30,6 @@ router.get('/awaiting-reply', getAwaitingReplyPaginated);
 router.get('/upcoming-birthdays', getUpcomingBirthdaysPaginated);
 router.get('/upcoming-important-dates', getUpcomingImportantDatesPaginated);
 router.get('/upcoming-reminders', getUpcomingRemindersPaginated);
+router.get('/upcoming-scheduled-messages', getUpcomingScheduledMessagesPaginated);
 
 export default router;

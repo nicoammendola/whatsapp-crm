@@ -113,3 +113,35 @@ export async function deleteScheduledMessage(req: AuthRequest, res: Response): P
     res.status(400).json({ error: error.message || 'Failed to cancel scheduled message' });
   }
 }
+
+export async function approveScheduledMessage(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const id = getIdParam(req);
+    const result = await scheduledMessageService.approve(userId, id);
+    if (result === null) {
+      res.status(404).json({ error: 'Scheduled message not found' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Approve scheduled message error:', error);
+    res.status(400).json({ error: error.message || 'Failed to approve scheduled message' });
+  }
+}
+
+export async function rejectScheduledMessage(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const id = getIdParam(req);
+    const result = await scheduledMessageService.reject(userId, id);
+    if (result === null) {
+      res.status(404).json({ error: 'Scheduled message not found' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Reject scheduled message error:', error);
+    res.status(400).json({ error: error.message || 'Failed to reject scheduled message' });
+  }
+}

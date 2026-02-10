@@ -123,6 +123,32 @@ export const scheduledMessagesApi = {
     api.put<{ scheduledMessage: ScheduledMessage }>(`/api/scheduled-messages/${id}`, data),
   delete: (id: string) =>
     api.delete<{ success: boolean }>(`/api/scheduled-messages/${id}`),
+  approve: (id: string) =>
+    api.post<{ success: boolean }>(`/api/scheduled-messages/${id}/approve`),
+  reject: (id: string) =>
+    api.post<{ success: boolean }>(`/api/scheduled-messages/${id}/reject`),
+};
+
+// Settings
+export const settingsApi = {
+  get: () =>
+    api.get<{ anthropicModel: string; hasApiKey: boolean }>("/api/settings"),
+  update: (data: { anthropic_api_key?: string; anthropic_model?: string }) =>
+    api.put<{ success: boolean }>("/api/settings", data),
+  testAnthropic: () =>
+    api.post<{ valid: boolean; error?: string }>("/api/settings/test-anthropic"),
+};
+
+// Analysis
+export const analysisApi = {
+  analyzeContact: (contactId: string) =>
+    api.post<{
+      success: boolean;
+      attributes: any;
+      summary: string;
+      suggestedMessage?: any;
+      error?: string;
+    }>(`/api/analysis/${contactId}`),
 };
 
 // Conversations
@@ -272,6 +298,11 @@ export const dashboardApi = {
   getUpcomingReminders: (limit?: number, offset?: number) =>
     api.get<{ reminders: UpcomingReminder[]; total: number; hasMore: boolean }>(
       "/api/dashboard/upcoming-reminders",
+      { params: { limit, offset } }
+    ),
+  getUpcomingScheduledMessages: (limit?: number, offset?: number) =>
+    api.get<{ scheduledMessages: any[]; total: number; hasMore: boolean }>(
+      "/api/dashboard/upcoming-scheduled-messages",
       { params: { limit, offset } }
     ),
 };

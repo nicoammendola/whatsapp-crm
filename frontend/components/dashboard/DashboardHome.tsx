@@ -11,6 +11,7 @@ import ActiveContactsGraph from "./ActiveContactsGraph";
 import UpcomingBirthdaysCard from "./UpcomingBirthdaysCard";
 import UpcomingImportantDatesCard from "./UpcomingImportantDatesCard";
 import UpcomingRemindersCard from "./UpcomingRemindersCard";
+import ScheduledMessagesCard from "./ScheduledMessagesCard";
 import RelationshipHealthCard from "./RelationshipHealthCard";
 import DashboardSkeleton from "./DashboardSkeleton";
 
@@ -203,9 +204,14 @@ export function DashboardHome() {
         </div>
       </div>
 
-      {/* Upcoming ping reminders - full width at bottom */}
-      <div className="animate-fade-in" style={{ animationDelay: '400ms' }}>
-        <UpcomingRemindersCard />
+      {/* Upcoming ping reminders and scheduled messages - side by side */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="animate-fade-in" style={{ animationDelay: '400ms' }}>
+          <UpcomingRemindersCard />
+        </div>
+        <div className="animate-fade-in" style={{ animationDelay: '450ms' }}>
+          <ScheduledMessagesCard />
+        </div>
       </div>
     </div>
   );

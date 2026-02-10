@@ -10,6 +10,8 @@ import dashboardRoutes from './routes/dashboard.routes';
 import scheduledMessagesRoutes from './routes/scheduled-messages.routes';
 import cronRoutes from './routes/cron.routes';
 import conversationsRoutes from './routes/conversations.routes';
+import settingsRoutes from './routes/settings.routes';
+import analysisRoutes from './routes/analysis.routes';
 import { errorMiddleware } from './middleware/error.middleware';
 
 const app = express();
@@ -50,6 +52,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/scheduled-messages', scheduledMessagesRoutes);
 app.use('/api/cron', cronRoutes);
 app.use('/api/conversations', conversationsRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/analysis', analysisRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });

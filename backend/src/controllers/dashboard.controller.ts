@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { dashboardService } from '../services/dashboard.service';
 import { reminderService } from '../services/reminder.service';
+import { scheduledMessageService } from '../services/scheduled-message.service';
 
 export async function getDashboardStats(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -244,5 +245,29 @@ export async function getUpcomingRemindersPaginated(req: AuthRequest, res: Respo
   } catch (error) {
     console.error('Get upcoming reminders error:', error);
     res.status(500).json({ error: 'Failed to fetch upcoming reminders' });
+  }
+}
+
+export async function getUpcomingScheduledMessagesPaginated(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 5;
+    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+
+    if (isNaN(limit) || limit < 1 || limit > 100) {
+      res.status(400).json({ error: 'Invalid limit. Must be between 1 and 100' });
+      return;
+    }
+
+    if (isNaN(offset) || offset < 0) {
+      res.status(400).json({ error: 'Invalid offset. Must be >= 0' });
+      return;
+    }
+
+    const result = await scheduledMessageService.getUpcomingPaginated(userId, limit, offset);
+    res.json(result);
+  } catch (error) {
+    console.error('Get upcoming scheduled messages error:', error);
+    res.status(500).json({ error: 'Failed to fetch upcoming scheduled messages' });
   }
 }

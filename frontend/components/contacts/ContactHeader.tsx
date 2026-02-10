@@ -7,9 +7,10 @@ import { RemindersSection } from "./RemindersSection";
 interface ContactHeaderProps {
   contact: Contact;
   onUpdate: (data: Partial<Contact>) => void;
+  showReminders?: boolean;
 }
 
-export function ContactHeader({ contact, onUpdate }: ContactHeaderProps) {
+export function ContactHeader({ contact, onUpdate, showReminders = true }: ContactHeaderProps) {
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [tagInput, setTagInput] = useState("");
 
@@ -67,7 +68,7 @@ export function ContactHeader({ contact, onUpdate }: ContactHeaderProps) {
       </div>
 
       {/* Ping reminders - above Tags */}
-      <RemindersSection contactId={contact.id} />
+      {showReminders && <RemindersSection contactId={contact.id} />}
 
       {/* Tags */}
       <div>

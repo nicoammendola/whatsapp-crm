@@ -42,6 +42,19 @@ export interface Contact {
   interactionCount30d?: number | null;
   interactionCount90d?: number | null;
   okWithoutReply?: boolean;
+  // LLM Analysis fields
+  tone?: string | null;
+  warmth?: number | null;
+  responseSpeed?: string | null;
+  averageMessageLength?: string | null;
+  relationshipDepth?: number | null;
+  conversationBalance?: number | null;
+  engagementLevel?: string | null;
+  primaryTopics?: string[];
+  sharedInterests?: string[];
+  lastLlmAnalysis?: string | null;
+  conversationSummary?: string | null;
+  analysisVersion?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -187,7 +200,9 @@ export type ScheduledMessageStatus =
   | "sending"
   | "sent"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "llmSuggested"
+  | "userRejected";
 
 export interface ScheduledMessage {
   id: string;
@@ -198,6 +213,14 @@ export interface ScheduledMessage {
   errorMessage: string | null;
   sentAt: string | null;
   retryCount: number;
+  // LLM suggestion fields
+  llmReasoning?: string | null;
+  llmConfidence?: number | null;
+  contact?: {
+    name: string | null;
+    pushName: string | null;
+    phoneNumber: string | null;
+  };
   createdAt: string;
   updatedAt: string;
 }

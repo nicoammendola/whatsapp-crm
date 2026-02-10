@@ -22,8 +22,23 @@ model User {
   contacts        Contact[]
   messages        Message[]
   reminders       Reminder[]
+  userSettings    UserSettings?
 
   @@map("users")
+}
+
+model UserSettings {
+  id                        String   @id @default(cuid())
+  userId                    String   @unique
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  anthropicApiKeyEncrypted  String?
+  anthropicModel            String   @default("claude-sonnet-4-5-20250929")
+  
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@map("user_settings")
 }
 
 model WhatsAppSession {
@@ -80,6 +95,20 @@ model Contact {
   interactionCount7d  Int? @default(0)
   interactionCount30d Int? @default(0)
   interactionCount90d Int? @default(0)
+
+  // LLM Analysis fields
+  tone                    String?   @db.VarChar(20)  // 'professional', 'casual', 'friendly', 'formal', 'playful'
+  warmth                  Int?                        // 1-5 scale
+  responseSpeed           String?   @db.VarChar(20)  // 'instant', 'quick', 'moderate', 'slow', 'sporadic'
+  averageMessageLength    String?   @db.VarChar(20)  // 'brief', 'moderate', 'detailed', 'verbose'
+  relationshipDepth       Int?                        // 1-5 scale
+  conversationBalance     Int?                        // 1-5 scale
+  engagementLevel         String?   @db.VarChar(20)  // 'high', 'medium', 'low', 'declining'
+  primaryTopics           String[]  @default([])     // Array of topic strings
+  sharedInterests         String[]  @default([])     // Array of interest strings
+  lastLlmAnalysis         DateTime?
+  conversationSummary     String?
+  analysisVersion         String?   @default("1.0")
 
   messages           Message[]
   reminders          Reminder[]
@@ -196,6 +225,8 @@ enum ScheduledMessageStatus {
   sent
   failed
   cancelled
+  llmSuggested
+  userRejected
 }
 
 model ScheduledMessage {
@@ -208,6 +239,11 @@ model ScheduledMessage {
   errorMessage  String?
   sentAt        DateTime?
   retryCount    Int                   @default(0)
+  
+  // LLM suggestion fields
+  llmReasoning  String?
+  llmConfidence Float?                // 0.0 to 1.0
+  
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
 

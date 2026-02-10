@@ -37,6 +37,15 @@ export class ScheduledMessageService {
     return prisma.scheduledMessage.findMany({
       where: { contactId },
       orderBy: { scheduledTime: 'asc' },
+      include: {
+        contact: {
+          select: {
+            name: true,
+            pushName: true,
+            phoneNumber: true
+          }
+        }
+      }
     });
   }
 
@@ -161,6 +170,111 @@ export class ScheduledMessageService {
         retryCount,
       },
     });
+  }
+
+  /**
+   * Approve an LLM-suggested message (set status to pending)
+   */
+  async approve(userId: string, id: string) {
+    const existing = await this.getById(userId, id);
+    if (!existing) return null;
+
+    if (existing.status !== 'llmSuggested') {
+      throw new Error('Only LLM-suggested messages can be approved');
+    }
+
+    return prisma.scheduledMessage.update({
+      where: { id },
+      data: { status: 'pending' }
+    });
+  }
+
+  /**
+   * Reject an LLM-suggested message (set status to userRejected)
+   */
+  async reject(userId: string, id: string) {
+    const existing = await this.getById(userId, id);
+    if (!existing) return null;
+
+    if (existing.status !== 'llmSuggested') {
+      throw new Error('Only LLM-suggested messages can be rejected');
+    }
+
+    return prisma.scheduledMessage.update({
+      where: { id },
+      data: { status: 'userRejected' }
+    });
+  }
+
+  /**
+   * Get upcoming scheduled messages for dashboard (pending, sending, llmSuggested)
+   */
+  async getUpcomingPaginated(userId: string, limit: number, offset: number) {
+    const now = new Date();
+    
+    const [scheduledMessages, total] = await Promise.all([
+      prisma.scheduledMessage.findMany({
+        where: {
+          contact: { userId },
+          status: { in: ['pending', 'sending', 'llmSuggested'] },
+          scheduledTime: { gte: now },
+        },
+        include: {
+          contact: {
+            select: {
+              id: true,
+              name: true,
+              pushName: true,
+              phoneNumber: true,
+              profilePicUrl: true,
+            },
+          },
+        },
+        orderBy: { scheduledTime: 'asc' },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.scheduledMessage.count({
+        where: {
+          contact: { userId },
+          status: { in: ['pending', 'sending', 'llmSuggested'] },
+          scheduledTime: { gte: now },
+        },
+      }),
+    ]);
+
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const msPerDay = 24 * 60 * 60 * 1000;
+
+    const items = scheduledMessages.map((sm) => {
+      const scheduled = new Date(sm.scheduledTime);
+      const scheduledDayStart = new Date(scheduled);
+      scheduledDayStart.setHours(0, 0, 0, 0);
+      const daysUntil = Math.round((scheduledDayStart.getTime() - todayStart.getTime()) / msPerDay);
+      let urgency: 'low' | 'medium' | 'high' = 'low';
+      if (daysUntil <= 0) urgency = 'high';
+      else if (daysUntil <= 7) urgency = 'medium';
+
+      return {
+        id: sm.id,
+        contactId: sm.contactId,
+        messageText: sm.messageText,
+        scheduledTime: sm.scheduledTime,
+        status: sm.status,
+        contact: sm.contact,
+        daysUntil,
+        urgency,
+        llmReasoning: sm.llmReasoning,
+        llmConfidence: sm.llmConfidence,
+      };
+    });
+
+    return {
+      scheduledMessages: items,
+      total,
+      hasMore: offset + scheduledMessages.length < total,
+    };
   }
 }
 

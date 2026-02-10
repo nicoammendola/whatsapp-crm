@@ -52,17 +52,23 @@ export default function ActiveContactsGraph({ data, loading }: ActiveContactsGra
     { dataKey: "daily", label: "Daily" },
   ];
 
-  const renderTooltip = (props: { active?: boolean; label?: string; payload?: { dataKey: string; value?: number; color?: string }[] }) => {
-    const { active, label, payload = [] } = props;
-    if (!active || !label || !payload.length) return null;
-    const payloadByKey = Object.fromEntries(payload.map((p) => [p.dataKey, p]));
+  const renderTooltip = (
+    props: { active?: boolean; label?: string | number; payload?: readonly unknown[] }
+  ) => {
+    const { active, label, payload } = props;
+    const payloadList = (payload ?? []) as { dataKey?: string; value?: number; color?: string }[];
+    if (!active || label == null || label === "" || !payloadList.length) return null;
+    const labelStr = typeof label === "number" ? String(label) : label;
+    const payloadByKey = Object.fromEntries(
+      payloadList.map((p) => [p.dataKey ?? "", p])
+    );
     return (
       <div
         className="rounded-lg border border-zinc-200 bg-white px-3 py-2 shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
         style={{ zIndex: 1000 }}
       >
         <p className="mb-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-          {formatDate(label)}
+          {formatDate(labelStr)}
         </p>
         <div className="space-y-1">
           {TOOLTIP_ORDER.map(({ dataKey, label: lineLabel }) => {

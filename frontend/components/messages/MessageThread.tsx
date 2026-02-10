@@ -321,6 +321,9 @@ export function MessageThread({
     | { type: "message"; id: string; timestamp: string; message: Message }
     | { type: "scheduled"; id: string; timestamp: string; scheduled: ScheduledMessage };
 
+  // Only show scheduled messages that haven't been sent yet (sent ones appear as real messages)
+  const unsentScheduled = scheduledList.filter((sm) => sm.status !== "sent");
+
   const timelineItems: TimelineItem[] = [
     ...messages.map((msg) => ({
       type: "message" as const,
@@ -328,11 +331,10 @@ export function MessageThread({
       timestamp: msg.timestamp,
       message: msg,
     })),
-    ...scheduledList.map((sm) => ({
+    ...unsentScheduled.map((sm) => ({
       type: "scheduled" as const,
       id: sm.id,
-      timestamp:
-        sm.status === "sent" && sm.sentAt ? sm.sentAt : sm.scheduledTime,
+      timestamp: sm.scheduledTime,
       scheduled: sm,
     })),
   ].sort(

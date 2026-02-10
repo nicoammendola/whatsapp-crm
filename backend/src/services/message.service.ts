@@ -29,9 +29,19 @@ function logMessageSkipped(
   console.warn(`${LOG_PREFIX} Raw message payload:`, JSON.stringify(waMessage, null, 2));
 }
 
-/** Payload shape for WhatsApp message edit (editedMessage wrapper with protocolMessage) */
+/**
+ * Payload shape for WhatsApp message edit. Edits can arrive in two shapes:
+ * 1. message.editedMessage.message.protocolMessage (nested)
+ * 2. message.protocolMessage (top-level) with type MESSAGE_EDIT
+ * The edit event has its own key.id (e.g. 3A759AD59BDD7DBCEC3C); the original message id
+ * is in protocolMessage.key.id (e.g. 3A28C83BD0A7F51B4E51). We must never create a row for
+ * the edit event id — only update the original message.
+ */
 function getMessageEditInfo(waMessage: WAMessage): { originalKey: { id: string; remoteJid: string; remoteJidAlt?: string; fromMe: boolean }; editedBody: string | null } | null {
-  const edited = (waMessage.message as any)?.editedMessage?.message?.protocolMessage;
+  const msg = waMessage.message as any;
+  const edited =
+    msg?.editedMessage?.message?.protocolMessage ??
+    msg?.protocolMessage;
   if (!edited || edited.type !== 'MESSAGE_EDIT') return null;
   const key = edited.key;
   if (!key?.id || !key?.remoteJid) return null;
@@ -84,21 +94,13 @@ export class MessageService {
         }
       }
 
-      // Handle message edit: update the original message instead of creating a new one
+      // Handle message edit: update the original message instead of creating a new one.
+      // Use the chat JID (outer key.remoteJid), not protocolMessage.key.remoteJid — the latter
+      // is the sender (e.g. our number when fromMe); the message lives in the chat.
       const editInfo = getMessageEditInfo(waMessage);
       if (editInfo) {
         const { originalKey, editedBody } = editInfo;
-        let originalJid = jidNormalizedUser(originalKey.remoteJid);
-        // Resolve @lid JIDs using remoteJidAlt if available
-        if (originalJid.endsWith('@lid')) {
-          if (originalKey.remoteJidAlt) {
-            originalJid = jidNormalizedUser(originalKey.remoteJidAlt);
-          } else {
-            // Can't resolve @lid without alternate JID
-            return;
-          }
-        }
-        const contact = await contactService.getOrCreateContact(userId, originalJid);
+        const contact = await contactService.getOrCreateContact(userId, normalizedRemoteJid);
         const existing = await prisma.message.findFirst({
           where: {
             userId,

@@ -40,6 +40,16 @@ export function ScheduledMessagesSection({ contactId }: ScheduledMessagesSection
     load();
   }, [load]);
 
+  // Refetch when a scheduled message is created from elsewhere (e.g. conversation page)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ contactId: string }>).detail;
+      if (detail?.contactId === contactId) load();
+    };
+    window.addEventListener("scheduled-message-created", handler);
+    return () => window.removeEventListener("scheduled-message-created", handler);
+  }, [contactId, load]);
+
   // Supabase realtime: subscribe to scheduled_messages for this contact
   useEffect(() => {
     const client = supabase;

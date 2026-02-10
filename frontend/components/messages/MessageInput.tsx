@@ -220,6 +220,11 @@ export function MessageInput({
           setText("");
           setScheduleOpen(false);
           onScheduled?.();
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("scheduled-message-created", { detail: { contactId } })
+            );
+          }
         }}
       />
     </div>

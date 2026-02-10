@@ -16,19 +16,49 @@ interface RelationshipHealthCardProps {
 
 type HealthStatus = "toReply" | "awaitingReply" | "needsAttention" | "atRisk" | "onTrack" | null;
 
-const getScoreColor = () => "text-zinc-900 dark:text-zinc-100";
-const getScoreBgColor = () => "bg-zinc-500 dark:bg-zinc-400";
+const getScoreColor = (score: number) => {
+  if (score >= 80) return "text-green-600 dark:text-green-400";
+  if (score >= 60) return "text-yellow-600 dark:text-yellow-400";
+  return "text-red-600 dark:text-red-400";
+};
+
+const getScoreBgColor = (score: number) => {
+  if (score >= 80) return "bg-green-500";
+  if (score >= 60) return "bg-yellow-500";
+  return "bg-red-500";
+};
 
 const getStatusColor = (status: HealthStatus) => {
   switch (status) {
     case "toReply":
+      return "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800";
     case "awaitingReply":
-    case "onTrack":
+      return "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800";
     case "needsAttention":
+      return "text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800";
     case "atRisk":
-      return "border-zinc-300 bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-700";
+      return "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800";
+    case "onTrack":
+      return "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800";
     default:
       return "";
+  }
+};
+
+const getStatusDotColor = (status: HealthStatus) => {
+  switch (status) {
+    case "toReply":
+      return "bg-blue-500";
+    case "awaitingReply":
+      return "bg-indigo-500";
+    case "needsAttention":
+      return "bg-yellow-500";
+    case "atRisk":
+      return "bg-red-500";
+    case "onTrack":
+      return "bg-green-500";
+    default:
+      return "bg-zinc-500";
   }
 };
 
@@ -65,8 +95,8 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
   const [toReplyCount, setToReplyCount] = useState(0);
   const [awaitingReplyCount, setAwaitingReplyCount] = useState(0);
 
-  const scoreColor = getScoreColor();
-  const scoreBgColor = getScoreBgColor();
+  const scoreColor = getScoreColor(health.score);
+  const scoreBgColor = getScoreBgColor(health.score);
 
   // Load To reply and Awaiting reply counts on mount
   useEffect(() => {
@@ -207,7 +237,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
+              <div className={`h-2 w-2 rounded-full ${getStatusDotColor("toReply")}`} />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 To reply
               </span>
@@ -226,7 +256,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
+              <div className={`h-2 w-2 rounded-full ${getStatusDotColor("awaitingReply")}`} />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Awaiting reply
               </span>
@@ -245,7 +275,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
+              <div className={`h-2 w-2 rounded-full ${getStatusDotColor("needsAttention")}`} />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Need attention
               </span>
@@ -264,7 +294,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
+              <div className={`h-2 w-2 rounded-full ${getStatusDotColor("atRisk")}`} />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 At risk
               </span>
@@ -283,7 +313,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
             }`}
           >
             <div className="flex items-center justify-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-zinc-500 dark:bg-zinc-400" />
+              <div className={`h-2 w-2 rounded-full ${getStatusDotColor("onTrack")}`} />
               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 On track
               </span>
@@ -362,7 +392,13 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
                               {(selectedStatus === "needsAttention" || selectedStatus === "atRisk") &&
                                 "daysOverdue" in contact &&
                                 contact.daysOverdue !== undefined && (
-                                  <span className="flex-shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">
+                                  <span
+                                    className={`flex-shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${
+                                      contact.daysOverdue > 30
+                                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                        : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                    }`}
+                                  >
                                     {contact.daysOverdue} days overdue
                                   </span>
                                 )}
@@ -393,7 +429,7 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
                             title={isOkWithoutReply ? "Mark as needs reply" : "Mark as OK without reply"}
                           >
                             {isOkWithoutReply ? (
-                              <CheckCircle2 className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                              <CheckCircle2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                             ) : (
                               <Circle className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                             )}

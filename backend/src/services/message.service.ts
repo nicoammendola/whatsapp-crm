@@ -18,6 +18,7 @@ const LOG_PREFIX = '[Message]';
 function logMessageSkipped(
   userId: string,
   reason: string,
+  waMessage: WAMessage,
   extra?: { messageId?: string; remoteJid?: string; typeKey?: string }
 ): void {
   const parts = [`${LOG_PREFIX} Skipped message userId=${userId} reason=${reason}`];
@@ -25,10 +26,11 @@ function logMessageSkipped(
   if (extra?.remoteJid) parts.push(`remoteJid=${extra.remoteJid}`);
   if (extra?.typeKey) parts.push(`typeKey=${extra.typeKey}`);
   console.warn(parts.join(' '));
+  console.warn(`${LOG_PREFIX} Raw message payload:`, JSON.stringify(waMessage, null, 2));
 }
 
 /** Payload shape for WhatsApp message edit (editedMessage wrapper with protocolMessage) */
-function getMessageEditInfo(waMessage: WAMessage): { originalKey: { id: string; remoteJid: string; fromMe: boolean }; editedBody: string | null } | null {
+function getMessageEditInfo(waMessage: WAMessage): { originalKey: { id: string; remoteJid: string; remoteJidAlt?: string; fromMe: boolean }; editedBody: string | null } | null {
   const edited = (waMessage.message as any)?.editedMessage?.message?.protocolMessage;
   if (!edited || edited.type !== 'MESSAGE_EDIT') return null;
   const key = edited.key;
@@ -42,6 +44,7 @@ function getMessageEditInfo(waMessage: WAMessage): { originalKey: { id: string; 
     originalKey: {
       id: key.id,
       remoteJid: key.remoteJid,
+      remoteJidAlt: key.remoteJidAlt,
       fromMe: key.fromMe ?? false,
     },
     editedBody,
@@ -58,7 +61,7 @@ export class MessageService {
       const messageId = waMessage.key.id;
       const remoteJid = waMessage.key.remoteJid;
       if (!messageId || !remoteJid) {
-        logMessageSkipped(userId, 'missing_key', { messageId: messageId ?? undefined, remoteJid: remoteJid ?? undefined });
+        logMessageSkipped(userId, 'missing_key', waMessage, { messageId: messageId ?? undefined, remoteJid: remoteJid ?? undefined });
         return;
       }
 
@@ -66,18 +69,35 @@ export class MessageService {
       let normalizedRemoteJid = jidNormalizedUser(remoteJid);
 
       // Handle @lid (Local ID) JIDs - these are temporary IDs that WhatsApp uses
-      // We should skip these messages as they'll arrive again with the proper JID
+      // Baileys provides remoteJidAlt which contains the actual phone number JID
+      // Use that instead of skipping, so messages sync correctly to the CRM
       if (normalizedRemoteJid.endsWith('@lid')) {
-        logMessageSkipped(userId, 'lid_jid', { messageId, remoteJid: normalizedRemoteJid });
-        return;
+        const remoteJidAlt = (waMessage.key as any).remoteJidAlt;
+        if (remoteJidAlt) {
+          // Use the alternate JID which contains the actual phone number
+          normalizedRemoteJid = jidNormalizedUser(remoteJidAlt);
+        } else {
+          // If no alternate JID is available, skip this message
+          // (it may arrive again with the proper JID, or we can't resolve it)
+          logMessageSkipped(userId, 'lid_jid_no_alt', waMessage, { messageId, remoteJid: normalizedRemoteJid });
+          return;
+        }
       }
 
       // Handle message edit: update the original message instead of creating a new one
       const editInfo = getMessageEditInfo(waMessage);
       if (editInfo) {
         const { originalKey, editedBody } = editInfo;
-        const originalJid = jidNormalizedUser(originalKey.remoteJid);
-        if (originalJid.endsWith('@lid')) return;
+        let originalJid = jidNormalizedUser(originalKey.remoteJid);
+        // Resolve @lid JIDs using remoteJidAlt if available
+        if (originalJid.endsWith('@lid')) {
+          if (originalKey.remoteJidAlt) {
+            originalJid = jidNormalizedUser(originalKey.remoteJidAlt);
+          } else {
+            // Can't resolve @lid without alternate JID
+            return;
+          }
+        }
         const contact = await contactService.getOrCreateContact(userId, originalJid);
         const existing = await prisma.message.findFirst({
           where: {
@@ -116,7 +136,7 @@ export class MessageService {
           return { id: existing.id };
         }
         // Original message not found in DB (e.g. from before sync); skip creating a row for the edit event
-        logMessageSkipped(userId, 'edit_original_not_found', { messageId: editInfo.originalKey.id, remoteJid: originalJid });
+        logMessageSkipped(userId, 'edit_original_not_found', waMessage, { messageId: editInfo.originalKey.id, remoteJid: originalJid });
         return;
       }
 
@@ -139,12 +159,12 @@ export class MessageService {
       if (messageType === 'OTHER') {
           const typeKey = getContentType(content);
           if (typeKey === 'reactionMessage') {
-            logMessageSkipped(userId, 'reaction_message', { messageId, remoteJid: normalizedRemoteJid, typeKey: 'reactionMessage' });
+            logMessageSkipped(userId, 'reaction_message', waMessage, { messageId, remoteJid: normalizedRemoteJid, typeKey: 'reactionMessage' });
             return;
           }
           // Skip poll votes/updates - they're encrypted and don't add CRM value
           if (typeKey === 'pollUpdateMessage') {
-            logMessageSkipped(userId, 'poll_update_message', { messageId, remoteJid: normalizedRemoteJid, typeKey: 'pollUpdateMessage' });
+            logMessageSkipped(userId, 'poll_update_message', waMessage, { messageId, remoteJid: normalizedRemoteJid, typeKey: 'pollUpdateMessage' });
             return;
           }
       }

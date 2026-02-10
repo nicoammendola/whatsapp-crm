@@ -227,8 +227,7 @@ export class BaileysService {
           
           // Start tracking sync - will complete when history sync finishes or after timeout
           this.startSyncTracking(userId);
-          // Robust sync: backward fill (24h lookback) + last 300 messages for recent chats
-          void this.runConnectionSync(userId, sock);
+          log(userId, 'Connection established - relying on WhatsApp automatic sync');
         }
       });
 
@@ -424,76 +423,13 @@ export class BaileysService {
           
           // Start tracking sync - will complete when history sync finishes or after timeout
           this.startSyncTracking(userId);
-          // Robust sync: backward fill (24h lookback) + last 300 messages for recent chats
-          void this.runConnectionSync(userId, sock);
+          log(userId, 'Connection established - relying on WhatsApp automatic sync');
         }
       });
 
       sock.ev.on('creds.update', saveCreds);
       this.setupMessageHandlers(userId, sock, lastSyncTimestamp);
     });
-  }
-
-  /**
-   * On connection: request on-demand history so we catch messages missed while
-   * disconnected (e.g. new contacts, new conversations).
-   * Phase 1 (24h lookback): If our last message in DB is older than 24h (or we have none),
-   * we run the fetch. Phase 2: Always request last 50 messages for top 6 chats (≈300 messages)
-   * to fill any gaps. Results arrive via messaging-history.set.
-   */
-  private async runConnectionSync(userId: string, sock: WASocket): Promise<void> {
-    try {
-      const connectionTime = new Date();
-      const lookbackMs = 24 * 60 * 60 * 1000;
-      const lookbackTime = new Date(connectionTime.getTime() - lookbackMs);
-
-      const lastMessageTimestamp = await messageService.getLatestMessageTimestamp(userId);
-      const lastMessageOlderThan24h =
-        !lastMessageTimestamp || lastMessageTimestamp < lookbackTime;
-
-      const RECENT_CHATS_LIMIT = 6;
-      const MESSAGES_PER_CHAT = 50;
-      const refs = await messageService.getRecentConversationRefs(userId, RECENT_CHATS_LIMIT);
-
-      if (refs.length === 0) {
-        log(userId, 'connection sync: no conversations yet, nothing to fetch');
-        return;
-      }
-
-      if (!lastMessageOlderThan24h) {
-        log(userId, 'connection sync: last message within 24h; still fetching last 300 for recent chats');
-      } else {
-        log(userId, 'connection sync: last message older than 24h (or none) - fetching history for recent chats');
-      }
-
-      log(
-        userId,
-        `connection sync: fetching up to ${MESSAGES_PER_CHAT * refs.length} messages (${refs.length} chats, 50 each)`
-      );
-
-      for (let i = 0; i < refs.length; i++) {
-        const { key, timestampSec } = refs[i];
-        try {
-          await sock.fetchMessageHistory(MESSAGES_PER_CHAT, key, timestampSec);
-          log(userId, `connection sync: requested history for ${key.remoteJid} (${i + 1}/${refs.length})`);
-        } catch (fetchErr: unknown) {
-          const err = fetchErr as { output?: { statusCode?: number }; message?: string };
-          const code = err?.output?.statusCode;
-          const msg = err?.message ?? 'unknown';
-          log(userId, `connection sync: fetchMessageHistory failed for ${key.remoteJid}: ${msg}`);
-          if (code === 479) {
-            log(userId, 'WhatsApp rejected history (479) - may be rate limit or invalid reference');
-          }
-        }
-        if (i < refs.length - 1) {
-          await new Promise((r) => setTimeout(r, 1500));
-        }
-      }
-
-      log(userId, 'connection sync: requests sent; messages will arrive via messaging-history.set');
-    } catch (err) {
-      console.error(`${LOG_PREFIX} runConnectionSync error:`, err);
-    }
   }
 
   private setupMessageHandlers(userId: string, sock: WASocket, lastSyncTimestamp: number | null): void {
@@ -1080,55 +1016,12 @@ export class BaileysService {
         log(userId, `found ${messages.length} messages in store for ${jid}`);
       }
       
-      // If no messages in store, try to get oldest message from database to use as reference
-      // fetchMessageHistory can only fetch messages OLDER than a reference message
       if (messages.length === 0) {
-        const oldestMessage = await prisma.message.findFirst({
-          where: { userId, contactId },
-          orderBy: { timestamp: 'asc' },
-          select: { whatsappId: true, timestamp: true, fromMe: true },
-        });
-        
-        if (oldestMessage) {
-          // We have an existing message - use it as reference to fetch older messages
-          try {
-            const msgKey = {
-              remoteJid: jid,
-              id: oldestMessage.whatsappId,
-              fromMe: oldestMessage.fromMe,
-            };
-            const msgTimestamp = Math.floor(oldestMessage.timestamp.getTime() / 1000);
-            
-            log(userId, `fetching messages older than ${oldestMessage.whatsappId} (timestamp: ${msgTimestamp}) for ${jid}`);
-            
-            // fetchMessageHistory triggers WhatsApp to send messages via messaging-history.set event
-            // The messages will be processed by the existing event handler
-            await sock.fetchMessageHistory(limit, msgKey, msgTimestamp);
-            
-            log(userId, `triggered history fetch for ${jid} - messages will arrive via messaging-history.set event`);
-            
-            // Note: Messages will be processed asynchronously by the messaging-history.set handler
-            // We return 0 here as the sync happens via events, not synchronously
-            // The frontend will see new messages through socket events or polling
-            return { synced: 0 };
-          } catch (fetchErr: any) {
-            // Error 479 means WhatsApp rejected the request (invalid parameters or not allowed)
-            // This can happen if the message reference is invalid or WhatsApp doesn't allow fetching
-            log(userId, `fetchMessageHistory failed for ${jid}: ${fetchErr.message || 'Unknown error'}`);
-            if (fetchErr.output?.statusCode === 479 || fetchErr.message?.includes('479')) {
-              log(userId, `WhatsApp rejected history fetch (error 479) - may need valid message reference or contact may not have accessible history`);
-            }
-            return { synced: 0 };
-          }
-        } else {
-          // No messages in database and none in store
-          // Historical messages are only synced on initial WhatsApp connection
-          // New messages will be synced automatically when sent/received
-          log(userId, `no messages found for ${jid} in store or database`);
-          return { synced: 0 };
-        }
+        // No messages in store - rely on WhatsApp automatic sync and chat activation when user opens the chat
+        log(userId, `no messages in store for ${jid}; open the chat in CRM to activate and sync`);
+        return { synced: 0 };
       }
-      
+
       // Process messages from store
       log(userId, `processing ${messages.length} messages from store for ${jid}`);
       let synced = 0;

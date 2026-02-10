@@ -760,45 +760,6 @@ export class MessageService {
     return latest?.timestamp ?? null;
   }
 
-  /**
-   * Get recent conversation refs for on-demand history fetch.
-   * Returns one latest message per contact (by most recent message), up to `limit` contacts.
-   * Used to call fetchMessageHistory(50, key, ts) per chat to pull in last ~300 messages (50 × 6 chats).
-   */
-  async getRecentConversationRefs(
-    userId: string,
-    limit: number
-  ): Promise<Array<{ whatsappId: string; key: { id: string; remoteJid: string; fromMe: boolean }; timestampSec: number }>> {
-    const messages = await prisma.message.findMany({
-      where: { userId },
-      orderBy: { timestamp: 'desc' },
-      take: 500,
-      select: {
-        contactId: true,
-        whatsappId: true,
-        fromMe: true,
-        timestamp: true,
-        contact: { select: { whatsappId: true } },
-      },
-    });
-    const seenContacts = new Set<string>();
-    const refs: Array<{ whatsappId: string; key: { id: string; remoteJid: string; fromMe: boolean }; timestampSec: number }> = [];
-    for (const m of messages) {
-      if (seenContacts.has(m.contactId) || !m.contact.whatsappId) continue;
-      seenContacts.add(m.contactId);
-      refs.push({
-        whatsappId: m.contact.whatsappId,
-        key: {
-          id: m.whatsappId,
-          remoteJid: m.contact.whatsappId,
-          fromMe: m.fromMe,
-        },
-        timestampSec: Math.floor(m.timestamp.getTime() / 1000),
-      });
-      if (refs.length >= limit) break;
-    }
-    return refs;
-  }
 }
 
 export const messageService = new MessageService();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { contactsApi } from "@/lib/api";
+import { contactsApi, conversationsApi } from "@/lib/api";
 import type { Contact } from "@/types";
 import { MessageThread } from "@/components/messages/MessageThread";
 
@@ -67,6 +67,8 @@ export function ConversationDetail({
         const c = (res.data as { contact?: Contact })?.contact ?? (res.data as Contact);
         if (!cancelled && c) {
           setContact(c);
+          // Activate chat so WhatsApp starts syncing messages for this conversation
+          conversationsApi.activateChat(c.whatsappId).catch(() => {});
           // Try to refresh profile pic if missing
           if (!c.profilePicUrl) {
             contactsApi.refreshProfilePicture(contactId).then(({ data }) => {

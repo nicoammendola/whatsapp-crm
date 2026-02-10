@@ -132,6 +132,12 @@ export interface Conversation {
   unreadCount: number;
 }
 
+export const conversationsApi = {
+  /** Activate a chat so WhatsApp starts syncing messages (silent presence updates). Call when user opens a conversation. */
+  activateChat: (jid: string) =>
+    api.post<{ success: boolean; activated: string }>(`/api/conversations/${encodeURIComponent(jid)}/activate`),
+};
+
 // Messages
 export const messagesApi = {
   getAll: (params?: { limit?: number; offset?: number }) =>

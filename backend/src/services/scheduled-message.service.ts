@@ -98,13 +98,29 @@ export class ScheduledMessageService {
     });
   }
 
-  /** Get all pending scheduled messages due to be sent (for cron). */
+  /** Get all pending scheduled messages due to be sent (for cron). 
+   * Also includes failed messages that failed due to WhatsApp connection issues,
+   * so they can be retried when WhatsApp is connected.
+   */
   async getDuePending() {
     const now = new Date();
     return prisma.scheduledMessage.findMany({
       where: {
-        status: 'pending',
-        scheduledTime: { lte: now },
+        OR: [
+          {
+            status: 'pending',
+            scheduledTime: { lte: now },
+          },
+          {
+            status: 'failed',
+            scheduledTime: { lte: now },
+            errorMessage: {
+              contains: 'WhatsApp not connected',
+              mode: 'insensitive',
+            },
+            // Only retry connection errors, not other failures
+          },
+        ],
       },
       include: { contact: true },
       orderBy: { scheduledTime: 'asc' },
@@ -147,6 +163,21 @@ export class ScheduledMessageService {
         status: 'failed',
         errorMessage,
         retryCount,
+      },
+    });
+  }
+
+  /**
+   * Reset a failed message that failed due to WhatsApp connection issues.
+   * Resets retryCount to 0 since connection failures aren't real message failures.
+   */
+  async resetConnectionFailure(id: string) {
+    return prisma.scheduledMessage.update({
+      where: { id },
+      data: {
+        status: 'pending',
+        retryCount: 0,
+        errorMessage: null,
       },
     });
   }

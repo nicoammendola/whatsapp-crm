@@ -129,6 +129,23 @@ class ConnectionManagerService {
     if (!user) return null;
     return Date.now() - user.lastHeartbeat;
   }
+
+  /**
+   * Ensure WhatsApp is connected for scheduled messages.
+   * Connects if not already connected, even if no heartbeat was received.
+   * This allows scheduled messages to be sent even when the CRM is closed.
+   */
+  async ensureConnectedForScheduledMessage(userId: string): Promise<void> {
+    // Check if already connected
+    if (baileysService.isConnected(userId)) {
+      return;
+    }
+
+    // Connect to WhatsApp for scheduled message
+    // Don't record heartbeat - let it disconnect after inactivity if CRM is closed
+    console.log(`${LOG_PREFIX} Connecting WhatsApp for scheduled message (user ${userId})`);
+    await this.connectUser(userId);
+  }
 }
 
 export const connectionManager = new ConnectionManagerService();

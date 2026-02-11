@@ -138,7 +138,7 @@ export class MessageService {
           return { id: existing.id };
         }
         // Original message not found in DB (e.g. from before sync); skip creating a row for the edit event
-        logMessageSkipped(userId, 'edit_original_not_found', waMessage, { messageId: editInfo.originalKey.id, remoteJid: originalJid });
+        logMessageSkipped(userId, 'edit_original_not_found', waMessage, { messageId: editInfo.originalKey.id, remoteJid: normalizedRemoteJid });
         return;
       }
 

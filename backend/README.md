@@ -12,6 +12,9 @@ Copy `.env.example` to `.env` and set:
 - `PORT` — Server port (default 3001)
 - `SESSION_PATH` — Directory for WhatsApp session files
 - `FRONTEND_URL` — Allowed CORS origin (frontend URL)
+- **Password reset email (Resend):**
+  - `RESEND_API_KEY` — API key from [Resend](https://resend.com/api-keys). If unset, forgot-password still works and returns the reset link in the API response (for testing).
+  - `RESEND_FROM` — Optional. Sender address, e.g. `WhatsApp CRM <noreply@yourdomain.com>`. Defaults to `WhatsApp CRM <onboarding@resend.dev>` (Resend’s test domain; verify your own domain for production).
 
 ## Database
 
@@ -68,7 +71,7 @@ npm run dev       # or: npm run build && npm start
 
 ## API
 
-- **Auth:** `POST /auth/register`, `POST /auth/login`, `GET /auth/me` (Bearer token)
+- **Auth:** `POST /auth/register`, `POST /auth/login`, `GET /auth/me` (Bearer token), `POST /auth/forgot-password`, `POST /auth/reset-password`
 - **WhatsApp:** `POST /whatsapp/initialize`, `GET /whatsapp/status`, `POST /whatsapp/disconnect`
 - **Contacts:** `GET /contacts`, `GET /contacts/:id`, `PATCH /contacts/:id`
 - **Messages:** `GET /messages`, `GET /messages/contact/:contactId`
@@ -101,6 +104,8 @@ docker run -p 3001:3001 --env-file .env whatsapp-crm-backend
    - `NODE_ENV` — `production`
    - `SESSION_PATH` — **Important:** use a path that will be mounted as a volume, e.g. `/data/whatsapp-sessions`
    - `FRONTEND_URL` — Your frontend origin (e.g. `https://your-app.vercel.app`) for CORS
+   - `RESEND_API_KEY` — (optional) For sending password-reset emails
+   - `RESEND_FROM` — (optional) Sender email for Resend; default uses Resend’s onboarding domain
 4. **Volume for WhatsApp sessions** — So session data persists across deploys:
    - Railway → Service → Volumes → New Volume
    - Mount path: `/data` (or the parent of `SESSION_PATH`; if `SESSION_PATH=/data/whatsapp-sessions`, mount `/data`)

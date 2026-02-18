@@ -60,6 +60,11 @@ export function LoginForm() {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
+          <p className="text-right text-sm">
+            <Link href="/forgot-password" className="text-emerald-600 hover:underline dark:text-emerald-400">
+              Forgot password?
+            </Link>
+          </p>
           {error && (
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
           )}

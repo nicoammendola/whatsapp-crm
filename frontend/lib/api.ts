@@ -47,11 +47,29 @@ export interface AuthResponse {
   token: string;
 }
 
+export interface ForgotPasswordResponse {
+  message: string;
+  resetLink?: string;
+}
+
+export interface ResetPasswordBody {
+  token: string;
+  newPassword: string;
+}
+
+export interface ResetPasswordResponse {
+  message: string;
+}
+
 export const authApi = {
   register: (data: RegisterBody) =>
     api.post<AuthResponse>("/auth/register", data),
   login: (data: LoginBody) => api.post<AuthResponse>("/auth/login", data),
   getMe: () => api.get<User>("/auth/me"),
+  forgotPassword: (data: { email: string }) =>
+    api.post<ForgotPasswordResponse>("/auth/forgot-password", data),
+  resetPassword: (data: ResetPasswordBody) =>
+    api.post<ResetPasswordResponse>("/auth/reset-password", data),
 };
 
 // WhatsApp

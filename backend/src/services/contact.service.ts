@@ -172,6 +172,16 @@ export class ContactService {
     });
   }
 
+  async getDistinctTags(userId: string): Promise<string[]> {
+    const result = await prisma.$queryRaw<Array<{ tag: string }>>`
+      SELECT DISTINCT unnest(tags) as tag
+      FROM contacts
+      WHERE "userId" = ${userId} AND array_length(tags, 1) > 0
+      ORDER BY tag
+    `;
+    return result.map((r) => r.tag);
+  }
+
   async getContactStats(userId: string, contactId: string) {
     const contact = await prisma.contact.findFirst({
       where: { userId, id: contactId },

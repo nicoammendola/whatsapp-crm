@@ -47,7 +47,26 @@ export async function getConversations(req: AuthRequest, res: Response): Promise
     const limit = parseLimit(req.query.limit, 20);
     const offset = parseOffset(req.query.offset, 0);
     const search = typeof req.query.search === 'string' ? req.query.search : undefined;
-    const { conversations, hasMore } = await messageService.getConversations(userId, limit, offset, search);
+
+    const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+    const filters = {
+      contactFrequency: str(req.query.contactFrequency),
+      contactFrequencyEmpty: req.query.contactFrequencyEmpty === 'true',
+      birthdayEmpty: str(req.query.birthdayEmpty) as 'true' | 'false' | undefined,
+      importance: str(req.query.importance),
+      importanceEmpty: req.query.importanceEmpty === 'true',
+      relationshipType: str(req.query.relationshipType),
+      relationshipTypeEmpty: req.query.relationshipTypeEmpty === 'true',
+      tag: str(req.query.tag),
+      hasReminders: req.query.hasReminders === 'true' ? true : undefined,
+      hasScheduledMessages: req.query.hasScheduledMessages === 'true' ? true : undefined,
+    };
+
+    const hasFilters = Object.values(filters).some((v) => v !== undefined && v !== false);
+
+    const { conversations, hasMore } = await messageService.getConversations(
+      userId, limit, offset, search, hasFilters ? filters : undefined
+    );
     res.json({ conversations, hasMore });
   } catch (error) {
     console.error('Get conversations error:', error);

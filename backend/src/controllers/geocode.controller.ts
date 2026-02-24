@@ -28,7 +28,7 @@ export async function autocomplete(req: AuthRequest, res: Response): Promise<voi
     });
 
     const response = await fetch(`${PLACES_AUTOCOMPLETE_URL}?${params}`);
-    const data = await response.json();
+    const data = (await response.json()) as any;
 
     if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
       console.error('Places Autocomplete error:', data.status, data.error_message);
@@ -70,7 +70,7 @@ export async function placeDetails(req: AuthRequest, res: Response): Promise<voi
     });
 
     const response = await fetch(`${PLACE_DETAILS_URL}?${params}`);
-    const data = await response.json();
+    const data = (await response.json()) as any;
 
     if (data.status !== 'OK') {
       console.error('Place Details error:', data.status, data.error_message);

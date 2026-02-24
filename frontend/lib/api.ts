@@ -103,6 +103,7 @@ export const whatsappApi = {
 // Contacts
 export const contactsApi = {
   getAll: (params?: { search?: string }) => api.get<{ contacts?: Contact[] }>("/contacts", { params }),
+  getDistinctTags: () => api.get<{ tags: string[] }>("/contacts/tags"),
   getById: (id: string) => api.get<Contact>(`/contacts/${id}`),
   getStats: (id: string) => api.get<ContactStats>(`/contacts/${id}/stats`),
   refreshProfilePicture: (id: string) =>
@@ -210,7 +211,21 @@ export const conversationsApi = {
 export const messagesApi = {
   getAll: (params?: { limit?: number; offset?: number }) =>
     api.get<{ messages: Message[] }>("/messages", { params }),
-  getConversations: (params?: { limit?: number; offset?: number; search?: string }) =>
+  getConversations: (params?: {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    contactFrequency?: string;
+    contactFrequencyEmpty?: boolean;
+    birthdayEmpty?: string;
+    importance?: string;
+    importanceEmpty?: boolean;
+    relationshipType?: string;
+    relationshipTypeEmpty?: boolean;
+    tag?: string;
+    hasReminders?: boolean;
+    hasScheduledMessages?: boolean;
+  }) =>
     api.get<{
       conversations: Conversation[];
       hasMore: boolean;

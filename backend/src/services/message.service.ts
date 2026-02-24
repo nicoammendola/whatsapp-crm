@@ -725,35 +725,87 @@ export class MessageService {
     userId: string,
     limit: number = 20,
     offset: number = 0,
-    search?: string
+    search?: string,
+    filters?: {
+      contactFrequency?: string;
+      contactFrequencyEmpty?: boolean;
+      birthdayEmpty?: 'true' | 'false';
+      importance?: string;
+      importanceEmpty?: boolean;
+      relationshipType?: string;
+      relationshipTypeEmpty?: boolean;
+      tag?: string;
+      hasReminders?: boolean;
+      hasScheduledMessages?: boolean;
+    }
   ): Promise<{ conversations: Array<{ contact: any; lastMessage: any; unreadCount: number }>; hasMore: boolean }> {
-    // Single query: contact IDs ordered by latest message timestamp (most recent first)
-    // If search is provided, filter by contact name/phone and include contacts without messages
     let ordered: Array<{ contactId: string; lastTs: Date | null; unreadCount: bigint }>;
-    
-    if (search && search.trim()) {
-      const searchTerm = `%${search.trim()}%`;
-      // When searching, include contacts even if they have no messages
-      ordered = await prisma.$queryRaw<
+
+    const needsContactJoin = !!(search?.trim()) || !!filters;
+
+    if (needsContactJoin) {
+      const conditions: string[] = [`c."userId" = '${userId}'`];
+
+      if (search?.trim()) {
+        const escaped = search.trim().replace(/'/g, "''");
+        const term = `%${escaped}%`;
+        conditions.push(`(c.name ILIKE '${term}' OR c."pushName" ILIKE '${term}' OR c."phoneNumber" ILIKE '${term}' OR c."whatsappId" ILIKE '${term}')`);
+      }
+
+      if (filters) {
+        if (filters.contactFrequency) {
+          const v = filters.contactFrequency.replace(/'/g, "''");
+          conditions.push(`c."contactFrequency" = '${v}'`);
+        }
+        if (filters.contactFrequencyEmpty) {
+          conditions.push(`c."contactFrequency" IS NULL`);
+        }
+        if (filters.birthdayEmpty === 'true') {
+          conditions.push(`c.birthday IS NULL`);
+        } else if (filters.birthdayEmpty === 'false') {
+          conditions.push(`c.birthday IS NOT NULL`);
+        }
+        if (filters.importance) {
+          conditions.push(`c.importance = ${parseInt(filters.importance, 10)}`);
+        }
+        if (filters.importanceEmpty) {
+          conditions.push(`(c.importance IS NULL OR c.importance = 0)`);
+        }
+        if (filters.relationshipType) {
+          const v = filters.relationshipType.replace(/'/g, "''");
+          conditions.push(`c."relationshipType" = '${v}'`);
+        }
+        if (filters.relationshipTypeEmpty) {
+          conditions.push(`c."relationshipType" IS NULL`);
+        }
+        if (filters.tag) {
+          const v = filters.tag.replace(/'/g, "''");
+          conditions.push(`'${v}' = ANY(c.tags)`);
+        }
+        if (filters.hasReminders) {
+          conditions.push(`EXISTS (SELECT 1 FROM reminders r WHERE r."contactId" = c.id)`);
+        }
+        if (filters.hasScheduledMessages) {
+          conditions.push(`EXISTS (SELECT 1 FROM scheduled_messages sm WHERE sm."contactId" = c.id AND sm.status = 'pending')`);
+        }
+      }
+
+      const whereClause = conditions.join(' AND ');
+
+      ordered = await prisma.$queryRawUnsafe<
         Array<{ contactId: string; lastTs: Date | null; unreadCount: bigint }>
-      >`
+      >(`
         SELECT c.id as "contactId",
                MAX(m."timestamp") as "lastTs",
                COUNT(*) FILTER (WHERE m."isRead" = false AND m."fromMe" = false)::bigint as "unreadCount"
         FROM contacts c
-        LEFT JOIN messages m ON m."contactId" = c.id AND m."userId" = ${userId}
-        WHERE c."userId" = ${userId}
-          AND (
-            c.name ILIKE ${searchTerm}
-            OR c."pushName" ILIKE ${searchTerm}
-            OR c."phoneNumber" ILIKE ${searchTerm}
-            OR c."whatsappId" ILIKE ${searchTerm}
-          )
+        LEFT JOIN messages m ON m."contactId" = c.id AND m."userId" = '${userId}'
+        WHERE ${whereClause}
         GROUP BY c.id
         ORDER BY "lastTs" DESC NULLS LAST, c."updatedAt" DESC
         LIMIT ${limit + 1}
         OFFSET ${offset}
-      `;
+      `);
     } else {
       ordered = await prisma.$queryRaw<
         Array<{ contactId: string; lastTs: Date; unreadCount: bigint }>

@@ -8,6 +8,7 @@ import type { Conversation } from "@/lib/api";
 import type { Contact } from "@/types";
 import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 import { Input } from "@/components/ui/Input";
+import { ConversationFilters, type ConversationFilterValues } from "./ConversationFilters";
 import { formatDistanceToNow } from "date-fns";
 
 const PAGE_SIZE = 20;
@@ -24,6 +25,7 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [currentSearch, setCurrentSearch] = useState("");
+  const [filters, setFilters] = useState<ConversationFilterValues>({});
   const [syncing, setSyncing] = useState(false);
   const [messageSyncing, setMessageSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,6 +52,7 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
         limit: PAGE_SIZE,
         offset,
         search: currentSearch || undefined,
+        ...filters,
       });
       const list = data.conversations ?? [];
       setHasMore(data.hasMore ?? false);
@@ -102,6 +105,7 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
               limit: PAGE_SIZE,
               offset: 0,
               search: currentSearch || undefined,
+              ...filters,
             });
             const retryList = retryData.conversations ?? [];
             setHasMore(retryData.hasMore ?? false);
@@ -116,6 +120,7 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
               limit: PAGE_SIZE,
               offset: 0,
               search: currentSearch || undefined,
+              ...filters,
             });
             const retryList = retryData.conversations ?? [];
             setHasMore(retryData.hasMore ?? false);
@@ -138,14 +143,13 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
     }
   };
 
-  // Initial load
+  // Initial load and reload on search/filter changes
   useEffect(() => {
-    // Reset synced search ref when search changes
     if (syncedSearchRef.current !== currentSearch) {
       syncedSearchRef.current = "";
     }
     loadConversations(false);
-  }, [currentSearch]);
+  }, [currentSearch, filters]);
 
   // Listen for new messages and sync events via socket
   useEffect(() => {
@@ -235,7 +239,7 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
 
     el.addEventListener("scroll", handleScroll, { passive: true });
     return () => el.removeEventListener("scroll", handleScroll);
-  }, [hasMore, loading, loadingMore, conversations.length, currentSearch]);
+  }, [hasMore, loading, loadingMore, conversations.length, currentSearch, filters]);
 
   const contactName = (c: Conversation["contact"]) =>
     c.name || c.pushName || c.phoneNumber || c.whatsappId.split("@")[0];
@@ -358,12 +362,17 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
         <h2 className="mb-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
           Conversations
         </h2>
-        <Input
-          type="text"
-          placeholder="Search conversations..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <Input
+              type="text"
+              placeholder="Search conversations..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <ConversationFilters filters={filters} onChange={setFilters} />
+        </div>
       </div>
 
       {/* Sync / refresh indicators */}

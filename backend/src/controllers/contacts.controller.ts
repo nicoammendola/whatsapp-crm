@@ -124,6 +124,17 @@ export async function updateContact(req: AuthRequest, res: Response): Promise<vo
   }
 }
 
+export async function getDistinctTags(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const tags = await contactService.getDistinctTags(userId);
+    res.json({ tags });
+  } catch (error) {
+    console.error('Get distinct tags error:', error);
+    res.status(500).json({ error: 'Failed to fetch tags' });
+  }
+}
+
 export async function getContactStats(req: AuthRequest, res: Response): Promise<void> {
   try {
     const userId = req.userId!;

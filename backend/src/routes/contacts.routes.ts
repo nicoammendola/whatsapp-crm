@@ -5,6 +5,7 @@ import {
   updateContact,
   refreshProfilePicture,
   getContactStats,
+  getDistinctTags,
 } from '../controllers/contacts.controller';
 import {
   getReminders,
@@ -19,6 +20,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/', getAllContacts);
+router.get('/tags', getDistinctTags);
 router.get('/:id', getContactById);
 router.get('/:id/stats', getContactStats);
 router.post('/:id/refresh-profile-picture', refreshProfilePicture);

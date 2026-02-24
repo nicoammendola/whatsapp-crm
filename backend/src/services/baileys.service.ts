@@ -1,6 +1,7 @@
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
+  fetchLatestWaWebVersion,
   jidNormalizedUser,
   type WASocket,
   type WAMessage,
@@ -91,8 +92,12 @@ export class BaileysService {
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
+    const { version } = await fetchLatestWaWebVersion({});
+    log(userId, `using WA Web version: ${version.join('.')}`);
+
     const sock = makeWASocket({
       auth: state,
+      version,
       printQRInTerminal: false,
       logger: P({ level: 'warn' }),
       syncFullHistory: shouldSyncFullHistory, // Full history on first connection, incremental on reconnect
@@ -167,13 +172,13 @@ export class BaileysService {
             // Re-initialize with QR flow (it will use existing creds, no new QR needed)
             void this.initializeWhatsApp(userId);
           } else if (isLoggedOut) {
-            // Session invalid - clear it
+            // Session invalid - clear it (including phoneNumber so UI shows "Not connected")
             lastConnectionErrors.set(userId, { statusCode, message });
             await this.resetSession(userId, sessionPath);
             try {
               await prisma.whatsAppSession.upsert({
                 where: { userId },
-                update: { isConnected: false, qrCode: null },
+                update: { isConnected: false, qrCode: null, phoneNumber: null },
                 create: { userId, isConnected: false, qrCode: null },
               });
             } catch (err) {
@@ -291,8 +296,12 @@ export class BaileysService {
       log(userId, 'no existing messages - full history sync');
     }
 
+    const { version } = await fetchLatestWaWebVersion({});
+    log(userId, `using WA Web version: ${version.join('.')}`);
+
     const sock = makeWASocket({
       auth: state,
+      version,
       printQRInTerminal: false,
       logger: P({ level: 'warn' }),
       syncFullHistory: shouldSyncFullHistory, // Full history on first connection, incremental on reconnect
@@ -363,13 +372,13 @@ export class BaileysService {
             log(userId, 'reconnecting... (user still active)');
             void this.initializeWhatsApp(userId);
           } else if (isLoggedOut) {
-            // Session invalid - clear it
+            // Session invalid - clear it (including phoneNumber so UI shows "Not connected")
             lastConnectionErrors.set(userId, { statusCode, message });
             await this.resetSession(userId, sessionPath);
             try {
               await prisma.whatsAppSession.upsert({
                 where: { userId },
-                update: { isConnected: false, qrCode: null },
+                update: { isConnected: false, qrCode: null, phoneNumber: null },
                 create: { userId, isConnected: false, qrCode: null },
               });
             } catch (err) {

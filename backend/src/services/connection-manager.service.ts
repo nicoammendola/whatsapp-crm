@@ -16,8 +16,11 @@ interface ActiveUser {
  * - Disconnects when user closes CRM (no heartbeat for 2 minutes)
  * - Phone notifications work when CRM is closed
  */
+const SCHEDULED_DISCONNECT_MS = 120000; // 2 minutes after last scheduled send
+
 class ConnectionManagerService {
   private activeUsers = new Map<string, ActiveUser>();
+  private scheduledDisconnectTimers = new Map<string, NodeJS.Timeout>();
 
   /**
    * Record a heartbeat from a user.
@@ -27,6 +30,13 @@ class ConnectionManagerService {
   recordHeartbeat(userId: string): void {
     const now = Date.now();
     const existing = this.activeUsers.get(userId);
+
+    // If there's a pending scheduled-message disconnect, cancel it — heartbeat takes over
+    const scheduledTimer = this.scheduledDisconnectTimers.get(userId);
+    if (scheduledTimer) {
+      clearTimeout(scheduledTimer);
+      this.scheduledDisconnectTimers.delete(userId);
+    }
 
     if (!existing) {
       // First heartbeat - connect to WhatsApp
@@ -133,18 +143,38 @@ class ConnectionManagerService {
   /**
    * Ensure WhatsApp is connected for scheduled messages.
    * Connects if not already connected, even if no heartbeat was received.
-   * This allows scheduled messages to be sent even when the CRM is closed.
+   * Schedules auto-disconnect after 2 minutes if no heartbeat arrives
+   * (i.e. CRM stays closed), so the connection doesn't linger forever.
    */
   async ensureConnectedForScheduledMessage(userId: string): Promise<void> {
-    // Check if already connected
-    if (baileysService.isConnected(userId)) {
+    // If user has the CRM open (active heartbeat), connection is already
+    // managed by the heartbeat lifecycle — nothing extra to do.
+    if (this.isUserActive(userId)) {
       return;
     }
 
-    // Connect to WhatsApp for scheduled message
-    // Don't record heartbeat - let it disconnect after inactivity if CRM is closed
-    console.log(`${LOG_PREFIX} Connecting WhatsApp for scheduled message (user ${userId})`);
-    await this.connectUser(userId);
+    if (!baileysService.isConnected(userId)) {
+      console.log(`${LOG_PREFIX} Connecting WhatsApp for scheduled message (user ${userId})`);
+      await this.connectUser(userId);
+    }
+
+    // Reset the auto-disconnect timer: disconnect after 2 minutes of
+    // no further scheduled sends (and no heartbeat taking over).
+    const existingTimer = this.scheduledDisconnectTimers.get(userId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      this.scheduledDisconnectTimers.delete(userId);
+      // Only disconnect if user still has no active heartbeat
+      if (!this.isUserActive(userId)) {
+        console.log(`${LOG_PREFIX} Auto-disconnecting after scheduled send (user ${userId}) - no heartbeat received`);
+        this.disconnectUser(userId);
+      }
+    }, SCHEDULED_DISCONNECT_MS);
+
+    this.scheduledDisconnectTimers.set(userId, timer);
   }
 }
 

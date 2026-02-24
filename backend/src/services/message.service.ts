@@ -19,12 +19,13 @@ function logMessageSkipped(
   userId: string,
   reason: string,
   waMessage: WAMessage,
-  extra?: { messageId?: string; remoteJid?: string; typeKey?: string }
+  extra?: { messageId?: string; remoteJid?: string; typeKey?: string; stubType?: string | number }
 ): void {
   const parts = [`${LOG_PREFIX} Skipped message userId=${userId} reason=${reason}`];
   if (extra?.messageId) parts.push(`messageId=${extra.messageId}`);
   if (extra?.remoteJid) parts.push(`remoteJid=${extra.remoteJid}`);
   if (extra?.typeKey) parts.push(`typeKey=${extra.typeKey}`);
+  if (extra?.stubType) parts.push(`stubType=${extra.stubType}`);
   console.warn(parts.join(' '));
   console.warn(`${LOG_PREFIX} Raw message payload:`, JSON.stringify(waMessage, null, 2));
 }
@@ -72,6 +73,17 @@ export class MessageService {
       const remoteJid = waMessage.key.remoteJid;
       if (!messageId || !remoteJid) {
         logMessageSkipped(userId, 'missing_key', waMessage, { messageId: messageId ?? undefined, remoteJid: remoteJid ?? undefined });
+        return;
+      }
+
+      // Skip system stub messages (e.g. participant left, changed number, added, removed)
+      // These have no actual content and shouldn't appear in threads or bump conversations
+      if ((waMessage as any).messageStubType) {
+        logMessageSkipped(userId, 'stub_message', waMessage, {
+          messageId,
+          remoteJid: remoteJid,
+          stubType: (waMessage as any).messageStubType,
+        });
         return;
       }
 

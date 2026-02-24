@@ -863,6 +863,60 @@ export class MessageService {
     });
   }
 
+  /**
+   * Sync read status from WhatsApp's chat-level unreadCount.
+   * Called during history sync and on chats.update events.
+   * Returns the number of messages whose isRead status was updated.
+   */
+  async syncUnreadStatus(userId: string, whatsappId: string, unreadCount: number): Promise<number> {
+    const contact = await prisma.contact.findFirst({
+      where: { userId, whatsappId },
+    });
+    if (!contact) return 0;
+
+    if (unreadCount <= 0) {
+      const result = await prisma.message.updateMany({
+        where: {
+          userId,
+          contactId: contact.id,
+          isRead: false,
+          fromMe: false,
+        },
+        data: { isRead: true },
+      });
+      return result.count;
+    }
+
+    // Keep only the N most recent incoming messages as unread, mark the rest as read
+    const recentUnread = await prisma.message.findMany({
+      where: {
+        userId,
+        contactId: contact.id,
+        fromMe: false,
+        isRead: false,
+      },
+      orderBy: { timestamp: 'desc' },
+      take: unreadCount,
+      select: { id: true },
+    });
+
+    const keepUnreadIds = recentUnread.map((m) => m.id);
+
+    if (keepUnreadIds.length === 0) return 0;
+
+    const result = await prisma.message.updateMany({
+      where: {
+        userId,
+        contactId: contact.id,
+        isRead: false,
+        fromMe: false,
+        id: { notIn: keepUnreadIds },
+      },
+      data: { isRead: true },
+    });
+    return result.count;
+  }
+
   async getAllMessages(
     userId: string,
     limit: number = 100,

@@ -183,14 +183,21 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
       loadConversations(false, true, true);
     };
 
+    const handleConversationsUpdated = () => {
+      if (loadingRef.current) return;
+      loadConversations(false, true, true);
+    };
+
     socket.on("new_message", handleNewMessage);
     socket.on("whatsapp_sync_started", handleSyncStarted);
     socket.on("whatsapp_sync_complete", handleSyncComplete);
+    socket.on("conversations_updated", handleConversationsUpdated);
 
     return () => {
       socket.off("new_message", handleNewMessage);
       socket.off("whatsapp_sync_started", handleSyncStarted);
       socket.off("whatsapp_sync_complete", handleSyncComplete);
+      socket.off("conversations_updated", handleConversationsUpdated);
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;

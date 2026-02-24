@@ -471,7 +471,7 @@ export class BaileysService {
     });
 
     // Handle history sync (delivered after connection for historical messages)
-    sock.ev.on('messaging-history.set', async ({ messages: historyMessages, contacts: historyContacts, isLatest }) => {
+    sock.ev.on('messaging-history.set', async ({ messages: historyMessages, contacts: historyContacts, chats: historyChats, isLatest }) => {
       log(userId, `history sync received: ${historyMessages?.length ?? 0} messages, ${historyContacts?.length ?? 0} contacts, isLatest=${isLatest ?? false}`);
 
       // Filter messages to only include those newer than our latest message
@@ -553,6 +553,27 @@ export class BaileysService {
         log(userId, 'no new messages to process (all already in database)');
       }
 
+      // Sync read status from WhatsApp chat metadata
+      if (historyChats && historyChats.length > 0) {
+        let readSynced = 0;
+        for (const chat of historyChats) {
+          if (!chat.id) continue;
+          const chatJid = jidNormalizedUser(chat.id);
+          if (chatJid.endsWith('@lid')) continue;
+          const unreadCount = chat.unreadCount;
+          if (unreadCount === undefined || unreadCount === null || unreadCount < 0) continue;
+          try {
+            const updated = await messageService.syncUnreadStatus(userId, chatJid, unreadCount);
+            if (updated > 0) readSynced++;
+          } catch (err) {
+            console.error(`${LOG_PREFIX} Error syncing chat read status for ${chatJid}:`, err);
+          }
+        }
+        if (readSynced > 0) {
+          log(userId, `synced read status for ${readSynced} conversations from ${historyChats.length} chats`);
+        }
+      }
+
       // If this is the latest sync chunk, mark sync as complete
       if (isLatest === true) {
         log(userId, `history sync complete - ${sync?.messageCount ?? 0} new messages synced`);
@@ -618,6 +639,27 @@ export class BaileysService {
           }, reaction ?? {});
         } catch (err) {
           console.error(`${LOG_PREFIX} Error handling reaction:`, err);
+        }
+      }
+    });
+
+    // Sync read status when messages are read on another device (phone/desktop)
+    sock.ev.on('chats.update', async (updates) => {
+      for (const chat of updates) {
+        if (!chat.id) continue;
+        const unreadCount = chat.unreadCount;
+        if (unreadCount === undefined || unreadCount === null || unreadCount < 0) continue;
+
+        const chatJid = jidNormalizedUser(chat.id);
+        if (chatJid.endsWith('@lid')) continue;
+
+        try {
+          const updated = await messageService.syncUnreadStatus(userId, chatJid, unreadCount);
+          if (updated > 0) {
+            emitToUser(userId, 'conversations_updated', { whatsappId: chatJid, unreadCount });
+          }
+        } catch (err) {
+          console.error(`${LOG_PREFIX} Error syncing read status from chats.update for ${chatJid}:`, err);
         }
       }
     });

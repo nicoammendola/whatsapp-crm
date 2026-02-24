@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { contactsApi } from "@/lib/api";
 
 /** Minimal contact shape for avatar (id + profilePicUrl + name/pushName/phoneNumber for fallback initial). */
@@ -44,6 +44,29 @@ export function ContactAvatar({
 }: ContactAvatarProps) {
   const [imageFailed, setImageFailed] = useState(false);
   const refreshStarted = useRef(false);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
+  useEffect(() => {
+    if (contact.profilePicUrl) {
+      setImageFailed(false);
+      refreshStarted.current = false;
+      return;
+    }
+    if (refreshStarted.current) return;
+    refreshStarted.current = true;
+    contactsApi
+      .refreshProfilePicture(contact.id)
+      .then(({ data }) => {
+        if (data.profilePicUrl) {
+          onRefreshRef.current?.(data.profilePicUrl);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        refreshStarted.current = false;
+      });
+  }, [contact.id, contact.profilePicUrl]);
 
   const initial = getInitial(contact);
   const showImage =

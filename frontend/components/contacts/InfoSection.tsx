@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { format, differenceInYears } from "date-fns";
 import type { Contact } from "@/types";
+import { LocationAutocomplete } from "./LocationAutocomplete";
 
 interface InfoSectionProps {
   contact: Contact;
@@ -62,12 +63,9 @@ export function InfoSection({ contact, onUpdate }: InfoSectionProps) {
         onSave={(value) => onUpdate({ jobTitle: value })}
       />
 
-      <EditableField
-        label="Location"
-        value={contact.location}
-        type="text"
-        icon={MapPinIcon}
-        onSave={(value) => onUpdate({ location: value })}
+      <LocationField
+        location={contact.location}
+        onUpdate={onUpdate}
       />
 
       <EditableField
@@ -201,6 +199,46 @@ function EditableField({
             {displayValue || (
               <span className="text-zinc-400 dark:text-zinc-500 group-hover:text-emerald-500">
                 Add {label.toLowerCase()}
+              </span>
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LocationField({
+  location,
+  onUpdate,
+}: {
+  location: string | null | undefined;
+  onUpdate: (data: Partial<Contact>) => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+
+  return (
+    <div className="flex items-start gap-2">
+      <MapPinIcon className="h-4 w-4 mt-1 flex-shrink-0 text-zinc-400 dark:text-zinc-500" />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-zinc-600 dark:text-zinc-400 mb-1">Location</div>
+        {isEditing ? (
+          <LocationAutocomplete
+            value={location}
+            onSave={(loc, lat, lng) => {
+              onUpdate({ location: loc, latitude: lat, longitude: lng });
+              setIsEditing(false);
+            }}
+            onCancel={() => setIsEditing(false)}
+          />
+        ) : (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="group w-full text-left text-sm text-zinc-900 dark:text-zinc-100 hover:text-emerald-600 dark:hover:text-emerald-400"
+          >
+            {location || (
+              <span className="text-zinc-400 dark:text-zinc-500 group-hover:text-emerald-500">
+                Add location
               </span>
             )}
           </button>

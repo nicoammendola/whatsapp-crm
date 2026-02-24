@@ -114,6 +114,8 @@ export const contactsApi = {
     company?: string | null;
     jobTitle?: string | null;
     location?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
     relationshipType?: string | null;
     contactFrequency?: string | null;
     importance?: number | null;
@@ -130,6 +132,27 @@ export const contactsApi = {
     api.patch<{ reminder: Reminder }>(`/contacts/${contactId}/reminders/${reminderId}`, data),
   deleteReminder: (contactId: string, reminderId: string) =>
     api.delete<{ success: boolean }>(`/contacts/${contactId}/reminders/${reminderId}`),
+};
+
+// Geocode
+export interface PlacePrediction {
+  placeId: string;
+  description: string;
+  mainText: string;
+  secondaryText: string;
+}
+
+export interface PlaceDetails {
+  formattedAddress: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export const geocodeApi = {
+  autocomplete: (query: string) =>
+    api.get<{ predictions: PlacePrediction[] }>("/api/geocode/autocomplete", { params: { query } }),
+  placeDetails: (placeId: string) =>
+    api.get<PlaceDetails>("/api/geocode/place-details", { params: { placeId } }),
 };
 
 // Scheduled messages

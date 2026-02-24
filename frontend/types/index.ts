@@ -34,6 +34,8 @@ export interface Contact {
   company?: string | null;
   jobTitle?: string | null;
   location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   relationshipType?: string | null;
   contactFrequency?: string | null;
   importance?: number | null;

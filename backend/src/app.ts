@@ -12,6 +12,7 @@ import cronRoutes from './routes/cron.routes';
 import conversationsRoutes from './routes/conversations.routes';
 import settingsRoutes from './routes/settings.routes';
 import analysisRoutes from './routes/analysis.routes';
+import geocodeRoutes from './routes/geocode.routes';
 import { errorMiddleware } from './middleware/error.middleware';
 
 const app = express();
@@ -54,6 +55,7 @@ app.use('/api/cron', cronRoutes);
 app.use('/api/conversations', conversationsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/analysis', analysisRoutes);
+app.use('/api/geocode', geocodeRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });

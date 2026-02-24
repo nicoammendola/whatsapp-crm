@@ -83,6 +83,8 @@ model Contact {
   company         String?
   jobTitle        String?
   location        String?
+  latitude        Float?
+  longitude       Float?
 
   // NEW: Relationship metadata
   relationshipType String?  // "family", "close_friend", "colleague", "acquaintance"

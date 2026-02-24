@@ -76,6 +76,8 @@ export async function updateContact(req: AuthRequest, res: Response): Promise<vo
       company,
       jobTitle,
       location,
+      latitude,
+      longitude,
       relationshipType,
       contactFrequency,
       importance,
@@ -90,6 +92,8 @@ export async function updateContact(req: AuthRequest, res: Response): Promise<vo
       company?: string | null;
       jobTitle?: string | null;
       location?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
       relationshipType?: string | null;
       contactFrequency?: string | null;
       importance?: number | null;
@@ -103,6 +107,8 @@ export async function updateContact(req: AuthRequest, res: Response): Promise<vo
     if (company !== undefined) data.company = company;
     if (jobTitle !== undefined) data.jobTitle = jobTitle;
     if (location !== undefined) data.location = location;
+    if (latitude !== undefined) data.latitude = typeof latitude === 'number' ? latitude : null;
+    if (longitude !== undefined) data.longitude = typeof longitude === 'number' ? longitude : null;
     if (relationshipType !== undefined) data.relationshipType = relationshipType;
     if (contactFrequency !== undefined) data.contactFrequency = contactFrequency;
     if (importance !== undefined) data.importance = importance;

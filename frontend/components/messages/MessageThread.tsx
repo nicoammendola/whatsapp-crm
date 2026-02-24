@@ -418,7 +418,14 @@ export function MessageThread({
                   if (!a || !b) return false;
                   if (a.type !== "message" || b.type !== "message")
                     return false;
-                  return a.message.fromMe === b.message.fromMe;
+                  if (a.message.fromMe !== b.message.fromMe) return false;
+                  if (contact?.isGroup && !a.message.fromMe) {
+                    return (
+                      (a.message.senderJid ?? null) ===
+                      (b.message.senderJid ?? null)
+                    );
+                  }
+                  return true;
                 };
 
                 const showTail = showDate || !sameGroup(prev, item);

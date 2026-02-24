@@ -252,9 +252,31 @@ export class MessageService {
         console.error(`${LOG_PREFIX} Failed to update interaction stats for contact ${contact.id}:`, err);
       });
 
+      // Resolve sender contact for group messages
+      let senderContact: { name: string | null; profilePicUrl: string | null } | undefined;
+      if (senderJid) {
+        const sc = await prisma.contact.findFirst({
+          where: {
+            userId,
+            OR: [
+              { whatsappId: senderJid },
+              { alternativeJid: senderJid },
+            ],
+          },
+          select: { name: true, profilePicUrl: true },
+        });
+        if (sc) senderContact = { name: sc.name, profilePicUrl: sc.profilePicUrl };
+      }
+
+      // Extract link preview for the socket emission
+      const linkPreview = MessageService.extractLinkPreview(waMessage);
+
       // Emit real-time event
       emitToUser(userId, 'new_message', {
           ...message,
+          rawMessage: undefined,
+          senderContact,
+          linkPreview,
           contact: { 
               id: contact.id, 
               name: contact.name, 
@@ -411,6 +433,97 @@ export class MessageService {
         pushName: contactMap.get(jid)?.pushName ?? null,
       })) ?? [],
     }));
+  }
+
+  private async enrichMessagesWithSenderContacts<T extends { senderJid: string | null }>(
+    userId: string,
+    messages: T[]
+  ): Promise<(T & { senderContact?: { name: string | null; profilePicUrl: string | null } })[]> {
+    const senderJids = new Set<string>();
+    for (const msg of messages) {
+      if (msg.senderJid) senderJids.add(msg.senderJid);
+    }
+    if (senderJids.size === 0) return messages;
+
+    const contacts = await prisma.contact.findMany({
+      where: {
+        userId,
+        OR: [
+          { whatsappId: { in: Array.from(senderJids) } },
+          { alternativeJid: { in: Array.from(senderJids) } },
+        ],
+      },
+      select: { whatsappId: true, alternativeJid: true, name: true, profilePicUrl: true },
+    });
+
+    const jidToContact = new Map<string, { name: string | null; profilePicUrl: string | null }>();
+    for (const c of contacts) {
+      const info = { name: c.name, profilePicUrl: c.profilePicUrl };
+      jidToContact.set(c.whatsappId, info);
+      if (c.alternativeJid) jidToContact.set(c.alternativeJid, info);
+    }
+
+    return messages.map((msg) => {
+      if (!msg.senderJid) return msg;
+      const senderContact = jidToContact.get(msg.senderJid);
+      if (!senderContact) return msg;
+      return { ...msg, senderContact };
+    });
+  }
+
+  static extractLinkPreview(rawMessage: any): {
+    url: string;
+    title: string | null;
+    description: string | null;
+    thumbnail: string | null;
+  } | null {
+    if (!rawMessage?.message) return null;
+
+    const msg = rawMessage.message;
+    const etm =
+      msg.extendedTextMessage ??
+      msg.ephemeralMessage?.message?.extendedTextMessage ??
+      msg.viewOnceMessage?.message?.extendedTextMessage ??
+      msg.viewOnceMessageV2?.message?.extendedTextMessage;
+
+    if (!etm) return null;
+
+    const url = etm.canonicalUrl || etm.matchedText;
+    if (!url) return null;
+
+    let thumbnail: string | null = null;
+    if (etm.jpegThumbnail) {
+      try {
+        if (Buffer.isBuffer(etm.jpegThumbnail)) {
+          thumbnail = `data:image/jpeg;base64,${etm.jpegThumbnail.toString('base64')}`;
+        } else if (
+          typeof etm.jpegThumbnail === 'object' &&
+          etm.jpegThumbnail.type === 'Buffer' &&
+          Array.isArray(etm.jpegThumbnail.data)
+        ) {
+          thumbnail = `data:image/jpeg;base64,${Buffer.from(etm.jpegThumbnail.data).toString('base64')}`;
+        }
+      } catch {
+        // ignore thumbnail conversion errors
+      }
+    }
+
+    return {
+      url,
+      title: etm.title || null,
+      description: etm.description || null,
+      thumbnail,
+    };
+  }
+
+  private enrichMessagesWithLinkPreviews<T extends { rawMessage?: any }>(
+    messages: T[]
+  ): (T & { linkPreview?: { url: string; title: string | null; description: string | null; thumbnail: string | null } })[] {
+    return messages.map((msg) => {
+      const linkPreview = MessageService.extractLinkPreview(msg.rawMessage);
+      if (!linkPreview) return msg;
+      return { ...msg, linkPreview };
+    });
   }
 
   async handleReaction(
@@ -601,8 +714,11 @@ export class MessageService {
       },
     });
 
-    // Enrich messages with mention contact information
-    return this.enrichMessagesWithMentions(userId, messages);
+    // Enrich messages with mention, sender contact, and link preview information
+    const withMentions = await this.enrichMessagesWithMentions(userId, messages);
+    const withSender = await this.enrichMessagesWithSenderContacts(userId, withMentions);
+    const withPreviews = this.enrichMessagesWithLinkPreviews(withSender);
+    return withPreviews.map(({ rawMessage, ...rest }) => rest);
   }
 
   async getConversations(
@@ -728,8 +844,11 @@ export class MessageService {
 
     if (!message) return null;
 
-    const enriched = await this.enrichMessagesWithMentions(userId, [message]);
-    return enriched[0];
+    const withMentions = await this.enrichMessagesWithMentions(userId, [message]);
+    const withSender = await this.enrichMessagesWithSenderContacts(userId, withMentions);
+    const withPreviews = this.enrichMessagesWithLinkPreviews(withSender);
+    const { rawMessage, ...rest } = withPreviews[0];
+    return rest;
   }
 
   async markAsRead(userId: string, contactId: string): Promise<void> {
@@ -772,7 +891,10 @@ export class MessageService {
       },
     });
 
-    return this.enrichMessagesWithMentions(userId, messages);
+    const withMentions = await this.enrichMessagesWithMentions(userId, messages);
+    const withSender = await this.enrichMessagesWithSenderContacts(userId, withMentions);
+    const withPreviews = this.enrichMessagesWithLinkPreviews(withSender);
+    return withPreviews.map(({ rawMessage, ...rest }) => rest);
   }
 
   /**

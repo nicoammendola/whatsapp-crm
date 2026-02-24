@@ -100,12 +100,22 @@ export interface Message {
   senderJid?: string | null;
   senderName?: string | null;
   senderPhone?: string | null;
+  senderContact?: {
+    name: string | null;
+    profilePicUrl: string | null;
+  };
   mentionedJids?: string[];
   mentions?: Array<{
     jid: string;
     name: string | null;
     pushName: string | null;
   }>;
+  linkPreview?: {
+    url: string;
+    title: string | null;
+    description: string | null;
+    thumbnail: string | null;
+  };
   reactions?: { emoji: string; fromMe: boolean }[];
   isEdited?: boolean;
   contact?: {

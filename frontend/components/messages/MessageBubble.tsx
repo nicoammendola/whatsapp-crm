@@ -6,27 +6,20 @@ import { format } from "date-fns";
 import { MessageTextWithMentions } from "./MessageTextWithMentions";
 
 const SENDER_COLORS = [
-  { bg: "bg-rose-500", text: "text-rose-600 dark:text-rose-400" },
-  { bg: "bg-amber-500", text: "text-amber-700 dark:text-amber-400" },
-  { bg: "bg-teal-500", text: "text-teal-700 dark:text-teal-400" },
-  { bg: "bg-cyan-500", text: "text-cyan-700 dark:text-cyan-400" },
-  { bg: "bg-violet-500", text: "text-violet-600 dark:text-violet-400" },
-  { bg: "bg-pink-500", text: "text-pink-600 dark:text-pink-400" },
-  { bg: "bg-sky-500", text: "text-sky-700 dark:text-sky-400" },
-  { bg: "bg-orange-500", text: "text-orange-700 dark:text-orange-400" },
+  "text-[#e15d5d] dark:text-rose-400",
+  "text-[#d4880f] dark:text-amber-400",
+  "text-[#06966a] dark:text-teal-400",
+  "text-[#1fa6c4] dark:text-cyan-400",
+  "text-[#8b5cf6] dark:text-violet-400",
+  "text-[#d946a8] dark:text-pink-400",
+  "text-[#0d7bcc] dark:text-sky-400",
+  "text-[#e17c2e] dark:text-orange-400",
 ];
 
 function senderColorIdx(str: string): number {
   let n = 0;
   for (let i = 0; i < str.length; i++) n = (n << 5) - n + str.charCodeAt(i);
   return Math.abs(n) % SENDER_COLORS.length;
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2)
-    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
-  return name.charAt(0).toUpperCase() || "?";
 }
 
 const TEMP_ID_PREFIX = "temp-";
@@ -157,6 +150,73 @@ function PollContent({ message }: { message: Message }) {
   );
 }
 
+function LinkPreviewCard({
+  preview,
+  fromMe,
+}: {
+  preview: NonNullable<Message["linkPreview"]>;
+  fromMe: boolean;
+}) {
+  let domain: string;
+  try {
+    domain = new URL(preview.url).hostname.replace(/^www\./, "");
+  } catch {
+    domain = preview.url;
+  }
+
+  const hasMeta = preview.title || preview.description;
+
+  return (
+    <a
+      href={preview.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`-mx-2.5 -mt-1.5 mb-1 block overflow-hidden rounded-t-lg ${
+        fromMe
+          ? "bg-[#c6e8b8]/40 dark:bg-emerald-900/30"
+          : "bg-zinc-100/80 dark:bg-zinc-600/30"
+      } transition-opacity hover:opacity-80`}
+    >
+      {preview.thumbnail && (
+        <img
+          src={preview.thumbnail}
+          alt={preview.title || ""}
+          className="w-full object-cover"
+          style={{ maxHeight: 200 }}
+        />
+      )}
+      {hasMeta && (
+        <div className="px-3 py-2">
+          {preview.title && (
+            <p className="text-[13px] font-medium leading-snug text-zinc-900 dark:text-zinc-100">
+              {preview.title}
+            </p>
+          )}
+          {preview.description && (
+            <p className="mt-0.5 line-clamp-3 text-[12px] leading-snug text-zinc-500 dark:text-zinc-400">
+              {preview.description}
+            </p>
+          )}
+          <p className="mt-1 flex items-center gap-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+            <svg
+              className="h-3 w-3"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            >
+              <path d="M6.5 9.5a3 3 0 004 .5l2-2a3 3 0 00-4.24-4.24l-1 1" />
+              <path d="M9.5 6.5a3 3 0 00-4-.5l-2 2a3 3 0 004.24 4.24l1-1" />
+            </svg>
+            {domain}
+          </p>
+        </div>
+      )}
+    </a>
+  );
+}
+
 function QuotedBlock({
   quotedContent,
   quotedMessage,
@@ -242,11 +302,10 @@ export function MessageBubble({
   const hasQuoted = message.quotedContent || message.quotedMessage;
   const isSent = message.fromMe;
 
-  const showSender =
-    (contact?.isGroup || message.senderJid || message.senderName) &&
-    !isSent &&
-    (message.senderName || message.senderJid);
+  const isGroup = contact?.isGroup;
+  const showSender = !isSent && isGroup && showTail;
   const senderLabel =
+    message.senderContact?.name ||
     message.senderName ||
     (message.senderPhone
       ? `+${message.senderPhone.replace(/\D/g, "").slice(-10)}`
@@ -254,8 +313,7 @@ export function MessageBubble({
     (message.senderJid ? message.senderJid.split("@")[0] : "") ||
     "Unknown";
   const colorIdx = message.senderJid ? senderColorIdx(message.senderJid) : 0;
-  const senderBg = SENDER_COLORS[colorIdx].bg;
-  const senderTextColor = SENDER_COLORS[colorIdx].text;
+  const senderTextColor = SENDER_COLORS[colorIdx];
 
   const bubbleRounding = isSent
     ? showTail
@@ -280,21 +338,6 @@ export function MessageBubble({
           isSent ? "items-end" : "items-start"
         }`}
       >
-        {showSender && (
-          <div className="mb-0.5 flex items-center gap-1.5 px-1">
-            <div
-              className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-medium text-white ${senderBg}`}
-              title={senderLabel}
-            >
-              {initials(senderLabel)}
-            </div>
-            <span
-              className={`truncate text-[12px] font-medium ${senderTextColor}`}
-            >
-              {senderLabel}
-            </span>
-          </div>
-        )}
         <div
           className={`relative ${bubbleRounding} ${bubbleColors} px-2.5 py-1.5 shadow-sm`}
         >
@@ -311,6 +354,18 @@ export function MessageBubble({
                 <path d="M8 0v11C7 7 4 4 0 0h8z" fill="currentColor" />
               </svg>
             </span>
+          )}
+
+          {showSender && (
+            <p
+              className={`text-[13px] font-medium leading-snug ${senderTextColor}`}
+            >
+              {senderLabel}
+            </p>
+          )}
+
+          {message.linkPreview && (
+            <LinkPreviewCard preview={message.linkPreview} fromMe={isSent} />
           )}
 
           {hasQuoted && (

@@ -315,6 +315,12 @@ export function MessageBubble({
   const colorIdx = message.senderJid ? senderColorIdx(message.senderJid) : 0;
   const senderTextColor = SENDER_COLORS[colorIdx];
 
+  const hasReactions = message.reactions && message.reactions.length > 0;
+  const canInlineTimestamp =
+    !!body && !hasReactions;
+  const spacerWidth =
+    16 + 30 + (message.isEdited ? 45 : 0) + (isSent ? 24 : 0);
+
   const bubbleRounding = isSent
     ? showTail
       ? "rounded-lg rounded-tr-[3px]"
@@ -379,43 +385,72 @@ export function MessageBubble({
           {hasMediaContent && message.type !== "POLL" && (
             <MediaContent message={message} />
           )}
-          {body && (
-            <MessageTextWithMentions
-              body={body}
-              mentions={message.mentions}
-              fromMe={isSent}
-            />
-          )}
-          {!body && !hasMediaContent && message.type !== "POLL" && (
-            <p className="whitespace-pre-wrap break-words text-sm italic opacity-70">
-              {hasQuoted ? "\u2014" : "(empty)"}
-            </p>
-          )}
-
-          <div className="mt-0.5 flex min-h-[14px] items-center justify-end gap-1.5 flex-wrap">
-            {message.reactions && message.reactions.length > 0 && (
-              <div className="-ml-1 flex flex-wrap gap-0.5 rounded-full bg-black/5 px-1.5 py-0.5 dark:bg-white/10">
-                {message.reactions.map((r, i) => (
+          {canInlineTimestamp ? (
+            <div className="relative">
+              <MessageTextWithMentions
+                body={body!}
+                mentions={message.mentions}
+                fromMe={isSent}
+                suffix={
                   <span
-                    key={`${r.emoji}-${r.fromMe}-${i}`}
-                    className="text-xs leading-none"
-                    title={r.fromMe ? "You" : undefined}
-                  >
-                    {r.emoji}
-                  </span>
-                ))}
-              </div>
-            )}
-            <span className="text-[11px] leading-none text-[#667781] dark:text-zinc-400">
-              {format(new Date(message.timestamp), "HH:mm")}
-              {message.isEdited && (
-                <span className="ml-0.5 opacity-80" title="Edited">
-                  (edited)
+                    className="inline-block select-none"
+                    style={{ width: spacerWidth, height: 0 }}
+                    aria-hidden="true"
+                  />
+                }
+              />
+              <span className="absolute bottom-[2px] right-0 flex items-center gap-1.5">
+                <span className="text-[11px] leading-none text-[#667781] dark:text-zinc-400">
+                  {format(new Date(message.timestamp), "HH:mm")}
+                  {message.isEdited && (
+                    <span className="ml-0.5 opacity-80" title="Edited">
+                      (edited)
+                    </span>
+                  )}
                 </span>
+                {isSent && <DeliveryStatus message={message} />}
+              </span>
+            </div>
+          ) : (
+            <>
+              {body && (
+                <MessageTextWithMentions
+                  body={body}
+                  mentions={message.mentions}
+                  fromMe={isSent}
+                />
               )}
-            </span>
-            {isSent && <DeliveryStatus message={message} />}
-          </div>
+              {!body && !hasMediaContent && message.type !== "POLL" && (
+                <p className="whitespace-pre-wrap break-words text-sm italic opacity-70">
+                  {hasQuoted ? "\u2014" : "(empty)"}
+                </p>
+              )}
+              <div className="mt-0.5 flex min-h-[14px] items-center justify-end gap-1.5 flex-wrap">
+                {hasReactions && (
+                  <div className="-ml-1 flex flex-wrap gap-0.5 rounded-full bg-black/5 px-1.5 py-0.5 dark:bg-white/10">
+                    {message.reactions!.map((r, i) => (
+                      <span
+                        key={`${r.emoji}-${r.fromMe}-${i}`}
+                        className="text-xs leading-none"
+                        title={r.fromMe ? "You" : undefined}
+                      >
+                        {r.emoji}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <span className="text-[11px] leading-none text-[#667781] dark:text-zinc-400">
+                  {format(new Date(message.timestamp), "HH:mm")}
+                  {message.isEdited && (
+                    <span className="ml-0.5 opacity-80" title="Edited">
+                      (edited)
+                    </span>
+                  )}
+                </span>
+                {isSent && <DeliveryStatus message={message} />}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

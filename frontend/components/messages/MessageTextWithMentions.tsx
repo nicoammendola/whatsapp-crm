@@ -41,17 +41,20 @@ interface MessageTextWithMentionsProps {
   body: string;
   mentions?: MentionInfo[];
   fromMe: boolean;
+  suffix?: React.ReactNode;
 }
 
 export function MessageTextWithMentions({
   body,
   mentions = [],
   fromMe,
+  suffix,
 }: MessageTextWithMentionsProps) {
   if (!mentions || mentions.length === 0) {
     return (
       <p className="whitespace-pre-wrap break-words text-sm">
         <Linkified text={body} fromMe={fromMe} />
+        {suffix}
       </p>
     );
   }
@@ -86,6 +89,7 @@ export function MessageTextWithMentions({
           </span>
         );
       })}
+      {suffix}
     </p>
   );
 }

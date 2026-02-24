@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { messagesApi, whatsappApi } from "@/lib/api";
 import { useSocket } from "@/lib/socket";
@@ -253,10 +253,103 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
     );
   };
 
-  const messagePreview = (m: Conversation["lastMessage"]) =>
-    m.body && m.body.length > 50
-      ? `${m.body.slice(0, 50)}...`
-      : m.body || `[${m.type}]`;
+  const messagePreview = (m: Conversation["lastMessage"]): React.ReactNode => {
+    const bodyPreview =
+      m.body && m.body.length > 50 ? `${m.body.slice(0, 50)}...` : m.body;
+
+    const mediaInfo: Record<string, { label: string; icon: React.ReactNode }> = {
+      IMAGE: {
+        label: "Photo",
+        icon: (
+          <svg className="inline-block h-[15px] w-[15px] flex-shrink-0 align-[-2px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="m21 15-5-5L5 21" />
+          </svg>
+        ),
+      },
+      VIDEO: {
+        label: "Video",
+        icon: (
+          <svg className="inline-block h-[15px] w-[15px] flex-shrink-0 align-[-2px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="m22 8-6 4 6 4V8Z" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+        ),
+      },
+      AUDIO: {
+        label: "Audio",
+        icon: (
+          <svg className="inline-block h-[15px] w-[15px] flex-shrink-0 align-[-2px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" x2="12" y1="19" y2="22" />
+          </svg>
+        ),
+      },
+      DOCUMENT: {
+        label: "Document",
+        icon: (
+          <svg className="inline-block h-[15px] w-[15px] flex-shrink-0 align-[-2px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+          </svg>
+        ),
+      },
+      STICKER: {
+        label: "Sticker",
+        icon: (
+          <svg className="inline-block h-[15px] w-[15px] flex-shrink-0 align-[-2px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+            <line x1="9" x2="9.01" y1="9" y2="9" />
+            <line x1="15" x2="15.01" y1="9" y2="9" />
+          </svg>
+        ),
+      },
+      LOCATION: {
+        label: "Location",
+        icon: (
+          <svg className="inline-block h-[15px] w-[15px] flex-shrink-0 align-[-2px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+            <circle cx="12" cy="10" r="3" />
+          </svg>
+        ),
+      },
+      CONTACT: {
+        label: "Contact",
+        icon: (
+          <svg className="inline-block h-[15px] w-[15px] flex-shrink-0 align-[-2px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+        ),
+      },
+      POLL: {
+        label: "Poll",
+        icon: (
+          <svg className="inline-block h-[15px] w-[15px] flex-shrink-0 align-[-2px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 20V10" />
+            <path d="M12 20V4" />
+            <path d="M6 20v-6" />
+          </svg>
+        ),
+      },
+    };
+
+    const media = m.type !== "TEXT" && m.type !== "OTHER" ? mediaInfo[m.type] : null;
+
+    if (media) {
+      return (
+        <span className="inline-flex items-center gap-1">
+          {media.icon}
+          <span>{bodyPreview || media.label}</span>
+        </span>
+      );
+    }
+
+    return bodyPreview || `[${m.type}]`;
+  };
 
   return (
     <div className="flex flex-col h-full">

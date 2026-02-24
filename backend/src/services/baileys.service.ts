@@ -719,6 +719,7 @@ export class BaileysService {
     });
 
     log(userId, 'sync tracking started - waiting for history sync...');
+    emitToUser(userId, 'whatsapp_sync_started', {});
 
     // Set a timeout - if no history sync happens within 10 seconds, assume sync is complete
     // This handles the case where user was already synced and no history sync event fires

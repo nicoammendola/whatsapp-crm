@@ -78,8 +78,8 @@ export function ContactDetailsSidebar({ contactId }: ContactDetailsSidebarProps)
         customFields?: Record<string, any> | null;
       } = {};
 
-      if ('notes' in data) apiData.notes = data.notes;
-      if ('tags' in data) apiData.tags = data.tags;
+      if ('notes' in data) apiData.notes = data.notes ?? undefined;
+      if ('tags' in data) apiData.tags = data.tags ?? undefined;
       if ('birthday' in data) apiData.birthday = data.birthday ?? null;
       if ('company' in data) apiData.company = data.company ?? null;
       if ('jobTitle' in data) apiData.jobTitle = data.jobTitle ?? null;

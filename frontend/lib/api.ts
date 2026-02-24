@@ -110,15 +110,16 @@ export const contactsApi = {
   update: (id: string, data: {
     notes?: string;
     tags?: string[];
-    birthday?: string;
-    company?: string;
-    jobTitle?: string;
-    location?: string;
-    relationshipType?: string;
-    contactFrequency?: string;
-    importance?: number;
-    customFields?: Record<string, any>;
+    birthday?: string | null;
+    company?: string | null;
+    jobTitle?: string | null;
+    location?: string | null;
+    relationshipType?: string | null;
+    contactFrequency?: string | null;
+    importance?: number | null;
+    customFields?: Record<string, any> | null;
     okWithoutReply?: boolean;
+    profilePicUrl?: string | null;
   }) =>
     api.patch<Contact>(`/contacts/${id}`, data),
   getReminders: (contactId: string) =>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { messagesApi, whatsappApi } from "@/lib/api";
 import { useSocket } from "@/lib/socket";
@@ -25,19 +25,24 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
   const [search, setSearch] = useState("");
   const [currentSearch, setCurrentSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [messageSyncing, setMessageSyncing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const syncedSearchRef = useRef<string>(""); // Track which searches we've already synced for
+  const messageSyncingRef = useRef(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const socket = useSocket();
 
-  const loadConversations = async (append: boolean, skipSync = false) => {
+  const loadConversations = async (append: boolean, skipSync = false, silent = false) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     
     const offset = append ? conversations.length : 0;
     if (append) setLoadingMore(true);
-    else setLoading(true);
+    else if (!silent) setLoading(true);
+    else setRefreshing(true);
     
     try {
       setError(null);
@@ -128,6 +133,7 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
     } finally {
       setLoading(false);
       setLoadingMore(false);
+      setRefreshing(false);
       loadingRef.current = false;
     }
   };
@@ -141,26 +147,56 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
     loadConversations(false);
   }, [currentSearch]);
 
-  // Listen for new messages via socket and refresh conversation list
+  // Listen for new messages and sync events via socket
   useEffect(() => {
     if (!socket) return;
 
-    const handleNewMessage = (messageData: any) => {
-      // Refresh conversation list when any new message arrives
-      // This ensures the list stays up-to-date and conversations are re-sorted
-      // (conversations with newest messages should be on top)
-      // Backend already sorts by last message timestamp DESC
-      if (!loadingRef.current && !loading && !loadingMore) {
-        loadConversations(false);
+    const handleNewMessage = () => {
+      if (loadingRef.current) return;
+
+      if (messageSyncingRef.current) {
+        // Bulk sync mode: debounce — reset 2s timer on each message,
+        // only refetch once the burst stops
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => {
+          loadConversations(false, true, true);
+        }, 2000);
+      } else {
+        // Normal mode: silent background refresh (no loading spinner)
+        loadConversations(false, true, true);
       }
     };
 
+    const handleSyncStarted = () => {
+      messageSyncingRef.current = true;
+      setMessageSyncing(true);
+    };
+
+    const handleSyncComplete = () => {
+      messageSyncingRef.current = false;
+      setMessageSyncing(false);
+      // Clear any pending debounce and do a final refresh
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      loadConversations(false, true, true);
+    };
+
     socket.on("new_message", handleNewMessage);
+    socket.on("whatsapp_sync_started", handleSyncStarted);
+    socket.on("whatsapp_sync_complete", handleSyncComplete);
 
     return () => {
       socket.off("new_message", handleNewMessage);
+      socket.off("whatsapp_sync_started", handleSyncStarted);
+      socket.off("whatsapp_sync_complete", handleSyncComplete);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
     };
-  }, [socket, loading, loadingMore]);
+  }, [socket]);
 
   // Search with debounce
   useEffect(() => {
@@ -230,6 +266,19 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
         />
       </div>
 
+      {/* Sync / refresh indicators */}
+      {messageSyncing && (
+        <div className="flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 flex-shrink-0">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+          Syncing messages…
+        </div>
+      )}
+      {refreshing && !messageSyncing && (
+        <div className="h-0.5 flex-shrink-0 overflow-hidden">
+          <div className="h-full w-full animate-pulse bg-emerald-400/60 dark:bg-emerald-500/40" />
+        </div>
+      )}
+
       {/* Conversation list */}
       <div ref={listRef} className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
@@ -263,7 +312,7 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
                   <Link
                     key={conv.contact.id}
                     href={`/dashboard/conversations/${conv.contact.id}`}
-                    className={`flex w-full items-center gap-3 border-b border-zinc-100 px-4 py-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${
+                    className={`flex w-full items-center gap-3 border-b border-zinc-100 px-4 py-3 text-left transition-all duration-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${
                       isActive
                         ? "bg-emerald-50 hover:bg-emerald-50 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/20"
                         : ""

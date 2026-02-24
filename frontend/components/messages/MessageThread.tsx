@@ -19,6 +19,13 @@ function isTempId(id: string): boolean {
   return id.startsWith(TEMP_ID_PREFIX);
 }
 
+function sortByTime(list: Message[]): Message[] {
+  return [...list].sort(
+    (a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+}
+
 export function MessageThread({
   contactId,
   contact,
@@ -37,10 +44,15 @@ export function MessageThread({
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [scheduledList, setScheduledList] = useState<ScheduledMessage[]>([]);
-  const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
-  const syncedRef = useRef(false); // Track if we've already synced for this contact
+  const messagesCountRef = useRef(0);
+  const syncedRef = useRef(false);
+
+  useEffect(() => {
+    messagesCountRef.current = messages.length;
+  }, [messages.length]);
 
   const loadScheduled = useCallback(async () => {
     try {
@@ -58,7 +70,6 @@ export function MessageThread({
     loadScheduled();
   }, [loadScheduled]);
 
-  // Real-time updates for scheduled messages (Supabase)
   useEffect(() => {
     const client = supabase;
     if (!client || !contactId) return;
@@ -83,43 +94,44 @@ export function MessageThread({
   const loadInitial = useCallback(async () => {
     setLoading(true);
     setError(null);
-    // Mark as read
     messagesApi.markAsRead(contactId).catch(() => {});
-    
+
     try {
-      const res = await messagesApi.getByContact(contactId, { limit: PAGE_SIZE, offset: 0 });
+      const res = await messagesApi.getByContact(contactId, {
+        limit: PAGE_SIZE,
+        offset: 0,
+      });
       const list = res.data?.messages ?? [];
       setMessages(list.reverse());
       setHasMore(list.length === PAGE_SIZE);
 
-      // If no messages found and we haven't synced yet, trigger sync
       if (list.length === 0 && !syncedRef.current) {
         syncedRef.current = true;
         setSyncing(true);
-        
+
         try {
-          // Check if WhatsApp is connected before attempting sync
           const statusRes = await whatsappApi.getStatus();
           if (!statusRes.data.connected) {
             setSyncing(false);
             return;
           }
-          
-          // Try to sync messages from WhatsApp
+
           await messagesApi.syncContactMessages(contactId, 100);
-          
-          // Wait a moment for messages to be processed
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Reload messages
-          const retryRes = await messagesApi.getByContact(contactId, { limit: PAGE_SIZE, offset: 0 });
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+
+          const retryRes = await messagesApi.getByContact(contactId, {
+            limit: PAGE_SIZE,
+            offset: 0,
+          });
           const retryList = retryRes.data?.messages ?? [];
           setMessages(retryList.reverse());
           setHasMore(retryList.length === PAGE_SIZE);
         } catch (syncError: any) {
-          // Silently handle errors - messages may sync automatically later
           if (syncError.response?.status !== 503) {
-            console.warn('Message sync failed:', syncError.response?.data?.error || syncError.message);
+            console.warn(
+              "Message sync failed:",
+              syncError.response?.data?.error || syncError.message
+            );
           }
         } finally {
           setSyncing(false);
@@ -136,7 +148,7 @@ export function MessageThread({
     if (loadingMoreRef.current || !hasMore || loading) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
-    const offset = messages.length;
+    const offset = messagesCountRef.current;
     messagesApi
       .getByContact(contactId, { limit: PAGE_SIZE, offset })
       .then((res) => {
@@ -149,22 +161,32 @@ export function MessageThread({
         setLoadingMore(false);
         loadingMoreRef.current = false;
       });
-  }, [contactId, messages.length, hasMore, loading]);
+  }, [contactId, hasMore, loading]);
 
-  const addOptimisticMessage = useCallback((optimistic: Message) => {
-    setMessages((prev) => [...prev, optimistic]);
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    setTimeout(() => {
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior });
+    }, 50);
   }, []);
+
+  const isAtBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return true;
+    return el.scrollTop > -100;
+  }, []);
+
+  const addOptimisticMessage = useCallback(
+    (optimistic: Message) => {
+      setMessages((prev) => [...prev, optimistic]);
+      scrollToBottom();
+    },
+    [scrollToBottom]
+  );
 
   const replaceWithServerMessage = useCallback((serverMessage: Message) => {
     setMessages((prev) => {
       const byTemp = prev.find((m) => isTempId(m.id));
       const hasServer = prev.some((m) => m.id === serverMessage.id);
-      const sortByTime = (list: Message[]) =>
-        [...list].sort(
-          (a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        );
       if (byTemp && !hasServer) {
         return sortByTime(
           prev.map((m) => (m.id === byTemp.id ? serverMessage : m))
@@ -185,7 +207,6 @@ export function MessageThread({
   }, []);
 
   useEffect(() => {
-    // Reset synced ref when contact changes
     syncedRef.current = false;
     loadInitial();
   }, [loadInitial]);
@@ -195,42 +216,40 @@ export function MessageThread({
     if (!socket || !contactId || loading) return;
 
     const handleNewMessage = (messageData: Message) => {
-      // Only process messages for the current contact
-      if (messageData.contactId !== contactId) {
-        return;
-      }
+      if (messageData.contactId !== contactId) return;
 
-      // Check if message already exists
+      let wasAdded = false;
+
       setMessages((prev) => {
         const exists = prev.some((m) => m.id === messageData.id);
-        if (exists) {
-          return prev;
+        if (exists) return prev;
+
+        // Replace optimistic temp message instead of adding alongside it
+        if (messageData.fromMe) {
+          const tempIdx = prev.findIndex((m) => isTempId(m.id));
+          if (tempIdx !== -1) {
+            wasAdded = true;
+            return sortByTime(
+              prev.map((m, i) => (i === tempIdx ? messageData : m))
+            );
+          }
         }
 
-        // Add new message and sort by timestamp
-        const updated = [...prev, messageData].sort(
-          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        );
-
-        // Auto-scroll to bottom if user is near bottom
-        setTimeout(() => {
-          if (scrollContainerRef.current) {
-            const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-            const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
-            if (isAtBottom) {
-              bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-            }
-          }
-        }, 50);
-
-        return updated;
+        wasAdded = true;
+        return sortByTime([...prev, messageData]);
       });
+
+      if (wasAdded && isAtBottom()) {
+        scrollToBottom();
+      }
     };
 
     const handleMessageUpdated = (messageData: Message) => {
       if (messageData.contactId !== contactId) return;
       setMessages((prev) =>
-        prev.map((m) => (m.id === messageData.id ? { ...m, ...messageData } : m))
+        prev.map((m) =>
+          m.id === messageData.id ? { ...m, ...messageData } : m
+        )
       );
     };
 
@@ -241,87 +260,85 @@ export function MessageThread({
       socket.off("new_message", handleNewMessage);
       socket.off("message_updated", handleMessageUpdated);
     };
-  }, [socket, contactId, loading]);
+  }, [socket, contactId, loading, isAtBottom, scrollToBottom]);
 
   // Polling for new messages (3s interval) - fallback if socket fails
   useEffect(() => {
     if (!contactId || loading) return;
-    
+
     const interval = setInterval(() => {
-        if (loadingMoreRef.current) return;
-        
-        messagesApi.getByContact(contactId, { limit: 20, offset: 0 })
-          .then((res) => {
-             const list = res.data?.messages ?? [];
-             if (list.length === 0) return;
-             
-             let hasNewMessages = false;
-             
-             setMessages((prev) => {
-                 const existingIds = new Set(prev.map(m => m.id));
-                 const newMessages = list.filter(m => !existingIds.has(m.id));
-                 
-                 // If no new messages, do nothing
-                 if (newMessages.length === 0) return prev;
-                 
-                 hasNewMessages = true;
-                 
-                 // Merge and sort
-                 const combined = [...prev];
-                 for (const m of newMessages) {
-                     // Filter out temp messages if they are replaced by real ones (simple check by body/type)
-                     // or just rely on IDs not matching.
-                     // A better check would be: if we have a temp message with same body and it's recent, remove it?
-                     // But we rely on onSendSuccess to replace temp with real ID.
-                     // The polling might fetch the message BEFORE onSendSuccess returns.
-                     // In that case, we might have duplicates if we don't handle temp IDs carefully.
-                     // But `onSendSuccess` replaces by ID logic.
-                     // Here we just add new ones.
-                     
-                     // De-dupe by body/timestamp for temp messages?
-                     // For now, just add.
-                     combined.push(m);
-                 }
-                 
-                 return combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-             });
-             
-             // Scroll to bottom if we are near bottom?
-             // Or just let user scroll.
-             // Usually we scroll if user is at bottom.
-             if (hasNewMessages && scrollContainerRef.current) {
-                 const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-                 const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
-                 if (isAtBottom) {
-                      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-                 }
-             }
-          })
-          .catch(() => {});
+      if (loadingMoreRef.current) return;
+
+      messagesApi
+        .getByContact(contactId, { limit: 20, offset: 0 })
+        .then((res) => {
+          const list = res.data?.messages ?? [];
+          if (list.length === 0) return;
+
+          let hasNewMessages = false;
+
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const newMessages = list.filter((m) => !existingIds.has(m.id));
+
+            if (newMessages.length === 0) return prev;
+
+            hasNewMessages = true;
+            const updated = [...prev];
+
+            for (const m of newMessages) {
+              if (m.fromMe) {
+                const tempIdx = updated.findIndex((x) => isTempId(x.id));
+                if (tempIdx !== -1) {
+                  updated[tempIdx] = m;
+                  continue;
+                }
+              }
+              updated.push(m);
+            }
+
+            return updated.sort(
+              (a, b) =>
+                new Date(a.timestamp).getTime() -
+                new Date(b.timestamp).getTime()
+            );
+          });
+
+          if (hasNewMessages && isAtBottom()) {
+            scrollToBottom();
+          }
+        })
+        .catch(() => {});
     }, 3000);
-    
+
     return () => clearInterval(interval);
-  }, [contactId, loading]);
+  }, [contactId, loading, isAtBottom, scrollToBottom]);
 
+  // IntersectionObserver for loading older messages when scrolling up
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "auto" });
-  }, [messages.length]);
+    const sentinel = topSentinelRef.current;
+    const root = scrollContainerRef.current;
+    if (!sentinel || !root || !hasMore || loading || loadingMore) return;
 
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el || !hasMore || loading || loadingMore) return;
-    const handleScroll = () => {
-      if (el.scrollTop < 80) loadOlder();
-    };
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) loadOlder();
+      },
+      { root, rootMargin: "200px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
   }, [hasMore, loading, loadingMore, loadOlder]);
 
   type TimelineItem =
     | { type: "message"; id: string; timestamp: string; message: Message }
-    | { type: "scheduled"; id: string; timestamp: string; scheduled: ScheduledMessage };
+    | {
+        type: "scheduled";
+        id: string;
+        timestamp: string;
+        scheduled: ScheduledMessage;
+      };
 
-  // Only show scheduled messages that haven't been sent yet (sent ones appear as real messages)
   const unsentScheduled = scheduledList.filter((sm) => sm.status !== "sent");
 
   const timelineItems: TimelineItem[] = [
@@ -338,16 +355,19 @@ export function MessageThread({
       scheduled: sm,
     })),
   ].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    (a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 
   let lastDate: string | null = null;
 
   return (
-    <div className={`flex flex-1 flex-col min-h-0 ${fullHeight ? "h-full" : ""}`}>
+    <div
+      className={`flex flex-1 flex-col min-h-0 ${fullHeight ? "h-full" : ""}`}
+    >
       <div
         ref={scrollContainerRef}
-        className={`flex flex-col overflow-y-auto bg-zinc-50/50 p-4 dark:bg-zinc-800/30 ${
+        className={`flex flex-col-reverse overflow-y-auto bg-[#efeae2] px-4 py-2 dark:bg-zinc-800 ${
           fullHeight ? "flex-1 min-h-0" : "max-h-[60vh]"
         }`}
       >
@@ -360,7 +380,8 @@ export function MessageThread({
             {error}
           </div>
         ) : (
-          <>
+          <div className="flex flex-col">
+            {hasMore && <div ref={topSentinelRef} className="h-1" />}
             {loadingMore && (
               <div className="flex justify-center py-2">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
@@ -378,29 +399,63 @@ export function MessageThread({
                 )}
               </div>
             ) : (
-              timelineItems.map((item) => {
+              timelineItems.map((item, index) => {
                 const ts = item.timestamp;
                 const msgDate = format(new Date(ts), "yyyy-MM-dd");
                 const showDate = lastDate !== msgDate;
                 if (showDate) lastDate = msgDate;
+
+                const prev = index > 0 ? timelineItems[index - 1] : null;
+                const next =
+                  index < timelineItems.length - 1
+                    ? timelineItems[index + 1]
+                    : null;
+
+                const sameGroup = (
+                  a: TimelineItem | null,
+                  b: TimelineItem | null
+                ) => {
+                  if (!a || !b) return false;
+                  if (a.type !== "message" || b.type !== "message")
+                    return false;
+                  return a.message.fromMe === b.message.fromMe;
+                };
+
+                const showTail = showDate || !sameGroup(prev, item);
+                const nextDate = next
+                  ? format(new Date(next.timestamp), "yyyy-MM-dd")
+                  : null;
+                const isLastInGroup =
+                  !sameGroup(item, next) ||
+                  (nextDate !== null && nextDate !== msgDate);
+
                 return (
                   <div key={item.id}>
                     {showDate && (
-                      <div className="my-3 text-center text-xs text-zinc-500 dark:text-zinc-400">
-                        {format(new Date(ts), "PPP")}
+                      <div className="my-3 flex justify-center">
+                        <span className="rounded-lg bg-white/90 px-3 py-1 text-[12px] text-zinc-600 shadow-sm dark:bg-zinc-700/90 dark:text-zinc-300">
+                          {format(new Date(ts), "PPP")}
+                        </span>
                       </div>
                     )}
                     {item.type === "message" ? (
-                      <MessageBubble message={item.message} contact={contact} />
+                      <MessageBubble
+                        message={item.message}
+                        contact={contact}
+                        showTail={showTail}
+                        isLastInGroup={isLastInGroup}
+                      />
                     ) : (
-                      <ScheduledMessageBubble scheduled={item.scheduled} />
+                      <ScheduledMessageBubble
+                        scheduled={item.scheduled}
+                        isLastInGroup={isLastInGroup}
+                      />
                     )}
                   </div>
                 );
               })
             )}
-            <div ref={bottomRef} />
-          </>
+          </div>
         )}
       </div>
       <MessageInput

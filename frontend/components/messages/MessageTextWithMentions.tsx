@@ -33,7 +33,7 @@ export function MessageTextWithMentions({
               key={index}
               className={`font-medium ${
                 fromMe
-                  ? "text-emerald-100 underline decoration-emerald-200"
+                  ? "text-emerald-800 underline decoration-emerald-600 dark:text-emerald-200 dark:decoration-emerald-400"
                   : "text-blue-600 dark:text-blue-400"
               }`}
               title={segment.mention ? `${displayName} (${segment.mention.jid})` : "Mentioned user"}

@@ -5,33 +5,39 @@ import { format } from "date-fns";
 
 export function ScheduledMessageBubble({
   scheduled,
+  isLastInGroup = true,
 }: {
   scheduled: ScheduledMessage;
+  isLastInGroup?: boolean;
 }) {
   const isSent = scheduled.status === "sent";
-  const isPending = scheduled.status === "pending" || scheduled.status === "sending";
+  const isPending =
+    scheduled.status === "pending" || scheduled.status === "sending";
   const isFailed = scheduled.status === "failed";
 
-  const displayTime = scheduled.status === "sent" && scheduled.sentAt
-    ? scheduled.sentAt
-    : scheduled.scheduledTime;
+  const displayTime =
+    scheduled.status === "sent" && scheduled.sentAt
+      ? scheduled.sentAt
+      : scheduled.scheduledTime;
 
   return (
-    <div className="mb-2 flex justify-end">
+    <div
+      className={`flex justify-end ${isLastInGroup ? "mb-2" : "mb-[3px]"}`}
+    >
       <div className="flex max-w-[75%] flex-col items-end">
         <div
-          className={`rounded-2xl px-4 py-2 ${
+          className={`rounded-lg px-2.5 py-1.5 shadow-sm ${
             isSent
-              ? "bg-emerald-600 text-white"
+              ? "bg-[#d9fdd3] text-zinc-900 dark:bg-[#005c4b] dark:text-zinc-100"
               : isFailed
                 ? "bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200"
-                : "bg-zinc-200 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-300"
+                : "border border-dashed border-zinc-300 bg-white/80 text-zinc-700 dark:border-zinc-500 dark:bg-zinc-700/60 dark:text-zinc-300"
           }`}
         >
           <div className="flex items-center gap-2">
             {!isSent && (
               <svg
-                className="h-4 w-4 shrink-0 opacity-80"
+                className="h-4 w-4 shrink-0 opacity-70"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -48,19 +54,22 @@ export function ScheduledMessageBubble({
               {scheduled.messageText}
             </span>
           </div>
-          <div className="mt-1 flex items-center justify-end gap-2">
+          <div className="mt-0.5 flex items-center justify-end gap-2">
             {isFailed && scheduled.errorMessage && (
-              <span className="text-xs opacity-90" title={scheduled.errorMessage}>
+              <span
+                className="text-xs opacity-90"
+                title={scheduled.errorMessage}
+              >
                 Failed
               </span>
             )}
             <span
-              className={`text-xs ${
+              className={`text-[11px] ${
                 isSent
-                  ? "text-emerald-100"
+                  ? "text-[#667781] dark:text-zinc-400"
                   : isFailed
                     ? "text-red-700 dark:text-red-300"
-                    : "opacity-80"
+                    : "text-zinc-500 dark:text-zinc-400"
               }`}
             >
               {isPending

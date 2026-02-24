@@ -63,30 +63,31 @@ export function ContactDetailsSidebar({ contactId }: ContactDetailsSidebarProps)
     setContact((prev) => (prev ? { ...prev, ...data } : prev));
 
     try {
-      // Build API-compatible data object, filtering out null values
+      // Build API-compatible data object. Include fields that are in the update payload
+      // even when value is null so the backend can clear them.
       const apiData: {
         notes?: string;
         tags?: string[];
-        birthday?: string;
-        company?: string;
-        jobTitle?: string;
-        location?: string;
-        relationshipType?: string;
-        contactFrequency?: string;
-        importance?: number;
-        customFields?: Record<string, any>;
+        birthday?: string | null;
+        company?: string | null;
+        jobTitle?: string | null;
+        location?: string | null;
+        relationshipType?: string | null;
+        contactFrequency?: string | null;
+        importance?: number | null;
+        customFields?: Record<string, any> | null;
       } = {};
 
-      if (data.notes !== null && data.notes !== undefined) apiData.notes = data.notes;
-      if (data.tags !== null && data.tags !== undefined) apiData.tags = data.tags;
-      if (data.birthday !== null && data.birthday !== undefined) apiData.birthday = data.birthday;
-      if (data.company !== null && data.company !== undefined) apiData.company = data.company;
-      if (data.jobTitle !== null && data.jobTitle !== undefined) apiData.jobTitle = data.jobTitle;
-      if (data.location !== null && data.location !== undefined) apiData.location = data.location;
-      if (data.relationshipType !== null && data.relationshipType !== undefined) apiData.relationshipType = data.relationshipType;
-      if (data.contactFrequency !== null && data.contactFrequency !== undefined) apiData.contactFrequency = data.contactFrequency;
-      if (data.importance !== null && data.importance !== undefined) apiData.importance = data.importance;
-      if (data.customFields !== null && data.customFields !== undefined) apiData.customFields = data.customFields;
+      if ('notes' in data) apiData.notes = data.notes;
+      if ('tags' in data) apiData.tags = data.tags;
+      if ('birthday' in data) apiData.birthday = data.birthday ?? null;
+      if ('company' in data) apiData.company = data.company ?? null;
+      if ('jobTitle' in data) apiData.jobTitle = data.jobTitle ?? null;
+      if ('location' in data) apiData.location = data.location ?? null;
+      if ('relationshipType' in data) apiData.relationshipType = data.relationshipType ?? null;
+      if ('contactFrequency' in data) apiData.contactFrequency = data.contactFrequency ?? null;
+      if ('importance' in data) apiData.importance = data.importance ?? null;
+      if ('customFields' in data) apiData.customFields = data.customFields;
 
       await contactsApi.update(contactId, apiData);
       // Refetch to get server state

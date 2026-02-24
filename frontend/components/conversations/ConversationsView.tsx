@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { contactsApi } from "@/lib/api";
 import type { Contact } from "@/types";
+import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 import { MessageThread } from "@/components/messages/MessageThread";
 import { ConversationList } from "@/components/conversations/ConversationList";
 
@@ -16,41 +17,6 @@ export function ConversationsView({ contactId: urlContactId }: { contactId?: str
 
   const isSavedMessages = (c: Contact) =>
     (c.name || c.pushName || "") === "Saved Messages";
-
-  const contactInitial = (c: Contact) => {
-    const name = contactName(c);
-    return name.charAt(0).toUpperCase() || "?";
-  };
-
-  function ContactAvatar({
-    contact,
-    className = "h-12 w-12",
-    active,
-  }: {
-    contact: Contact;
-    className?: string;
-    active?: boolean;
-  }) {
-    const initial = contactInitial(contact);
-    if (contact.profilePicUrl) {
-      return (
-        <img
-          src={contact.profilePicUrl}
-          alt=""
-          className={`flex-shrink-0 rounded-full object-cover ${className}`}
-        />
-      );
-    }
-    return (
-      <div
-        className={`flex flex-shrink-0 items-center justify-center rounded-full text-lg font-semibold text-white ${className} ${
-          active ? "bg-emerald-600" : "bg-zinc-400 dark:bg-zinc-600"
-        }`}
-      >
-        {initial}
-      </div>
-    );
-  }
 
   // Fetch contact by ID when opened via URL
   useEffect(() => {
@@ -80,7 +46,16 @@ export function ConversationsView({ contactId: urlContactId }: { contactId?: str
           <>
             {/* Thread header */}
             <div className="flex items-center gap-3 border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
-              <ContactAvatar contact={resolvedContact} className="h-10 w-10 text-sm" active />
+              <ContactAvatar
+                contact={resolvedContact}
+                className="h-10 w-10 text-sm"
+                active
+                onRefresh={(profilePicUrl) =>
+                  setResolvedContact((prev) =>
+                    prev ? { ...prev, profilePicUrl } : prev
+                  )
+                }
+              />
               <div>
                 <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
                   {contactName(resolvedContact)}

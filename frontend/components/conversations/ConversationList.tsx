@@ -6,6 +6,7 @@ import { messagesApi, whatsappApi } from "@/lib/api";
 import { useSocket } from "@/lib/socket";
 import type { Conversation } from "@/lib/api";
 import type { Contact } from "@/types";
+import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 import { Input } from "@/components/ui/Input";
 import { formatDistanceToNow } from "date-fns";
 
@@ -199,40 +200,15 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
   const isSavedMessages = (c: Conversation["contact"]) =>
     (c.name || c.pushName || "") === "Saved Messages";
 
-  const contactInitial = (c: Conversation["contact"]) => {
-    const name = contactName(c);
-    return name.charAt(0).toUpperCase() || "?";
-  };
-
-  function ContactAvatar({
-    contact,
-    className = "h-12 w-12",
-    active,
-  }: {
-    contact: Conversation["contact"] | Contact;
-    className?: string;
-    active?: boolean;
-  }) {
-    const initial = contactInitial(contact);
-    if (contact.profilePicUrl) {
-      return (
-        <img
-          src={contact.profilePicUrl}
-          alt=""
-          className={`flex-shrink-0 rounded-full object-cover ${className}`}
-        />
-      );
-    }
-    return (
-      <div
-        className={`flex flex-shrink-0 items-center justify-center rounded-full text-lg font-semibold text-white ${className} ${
-          active ? "bg-emerald-600" : "bg-zinc-400 dark:bg-zinc-600"
-        }`}
-      >
-        {initial}
-      </div>
+  const handleAvatarRefresh = (contactId: string, profilePicUrl: string | null) => {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.contact.id === contactId
+          ? { ...c, contact: { ...c.contact, profilePicUrl } }
+          : c
+      )
     );
-  }
+  };
 
   const messagePreview = (m: Conversation["lastMessage"]) =>
     m.body && m.body.length > 50
@@ -294,7 +270,13 @@ export function ConversationList({ selectedContactId }: ConversationListProps) {
                     }`}
                   >
                     {/* Avatar */}
-                    <ContactAvatar contact={conv.contact} active={isActive} />
+                    <ContactAvatar
+                      contact={conv.contact}
+                      active={isActive}
+                      onRefresh={(profilePicUrl) =>
+                        handleAvatarRefresh(conv.contact.id, profilePicUrl)
+                      }
+                    />
 
                     {/* Content */}
                     <div className="min-w-0 flex-1">

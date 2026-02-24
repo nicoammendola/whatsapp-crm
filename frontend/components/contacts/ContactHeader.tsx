@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Contact } from "@/types";
+import { ContactAvatar } from "./ContactAvatar";
 import { RemindersSection } from "./RemindersSection";
 
 interface ContactHeaderProps {
@@ -15,7 +16,6 @@ export function ContactHeader({ contact, onUpdate, showReminders = true }: Conta
   const [tagInput, setTagInput] = useState("");
 
   const contactName = contact.name || contact.pushName || contact.phoneNumber || "Unknown";
-  const contactInitial = contactName.charAt(0).toUpperCase() || "?";
 
   const handleAddTag = () => {
     const trimmed = tagInput.trim();
@@ -46,17 +46,11 @@ export function ContactHeader({ contact, onUpdate, showReminders = true }: Conta
     <div className="space-y-4">
       {/* Profile Picture */}
       <div className="flex flex-col items-center">
-        {contact.profilePicUrl ? (
-          <img
-            src={contact.profilePicUrl}
-            alt={contactName}
-            className="h-20 w-20 rounded-full object-cover"
-          />
-        ) : (
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-600 text-2xl font-semibold text-white">
-            {contactInitial}
-          </div>
-        )}
+        <ContactAvatar
+          contact={contact}
+          className="h-20 w-20 text-2xl"
+          onRefresh={(profilePicUrl) => onUpdate({ profilePicUrl })}
+        />
         <h2 className="mt-3 text-xl font-semibold text-zinc-900 dark:text-zinc-100">
           {contactName}
         </h2>

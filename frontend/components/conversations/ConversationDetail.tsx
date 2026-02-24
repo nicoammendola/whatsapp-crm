@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { contactsApi, conversationsApi } from "@/lib/api";
 import type { Contact } from "@/types";
+import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 import { MessageThread } from "@/components/messages/MessageThread";
 
 function contactName(c: Contact) {
@@ -11,37 +12,6 @@ function contactName(c: Contact) {
 
 function isSavedMessages(c: Contact) {
   return (c.name || c.pushName || "") === "Saved Messages";
-}
-
-function contactInitial(c: Contact) {
-  const name = contactName(c);
-  return name.charAt(0).toUpperCase() || "?";
-}
-
-function ContactAvatar({
-  contact,
-  className = "h-12 w-12",
-}: {
-  contact: Contact;
-  className?: string;
-}) {
-  const initial = contactInitial(contact);
-  if (contact.profilePicUrl) {
-    return (
-      <img
-        src={contact.profilePicUrl}
-        alt=""
-        className={`flex-shrink-0 rounded-full object-cover ${className}`}
-      />
-    );
-  }
-  return (
-    <div
-      className={`flex flex-shrink-0 items-center justify-center rounded-full text-lg font-semibold text-white bg-zinc-400 dark:bg-zinc-600 ${className}`}
-    >
-      {initial}
-    </div>
-  );
 }
 
 export function ConversationDetail({ 
@@ -110,7 +80,13 @@ export function ConversationDetail({
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-900">
       {/* Thread header */}
       <div className="flex items-center gap-3 border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
-        <ContactAvatar contact={contact} className="h-10 w-10 text-sm" />
+        <ContactAvatar
+          contact={contact}
+          className="h-10 w-10 text-sm"
+          onRefresh={(profilePicUrl) =>
+            setContact((prev) => (prev ? { ...prev, profilePicUrl } : prev))
+          }
+        />
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
             {contactName(contact)}

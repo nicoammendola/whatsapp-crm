@@ -5,6 +5,7 @@ import { Activity, ChevronRight, ChevronLeft, CheckCircle2, Circle } from "lucid
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import DashboardCard from "./DashboardCard";
+import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 import { dashboardApi, contactsApi, type HealthStatusContact, type AwaitingReplyContact } from "@/lib/api";
 import type { RelationshipHealth } from "@/types";
 
@@ -155,6 +156,12 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAvatarRefresh = (contactId: string, profilePicUrl: string | null) => {
+    setContacts((prev) =>
+      prev.map((c) => (c.id === contactId ? { ...c, profilePicUrl } : c))
+    );
   };
 
   const handlePageChange = (newPage: number) => {
@@ -364,17 +371,13 @@ export default function RelationshipHealthCard({ health }: RelationshipHealthCar
                           className="flex flex-1 items-center gap-2 text-left"
                         >
                           {/* Avatar - Smaller */}
-                          {contact.profilePicUrl ? (
-                            <img
-                              src={contact.profilePicUrl}
-                              alt=""
-                              className="h-8 w-8 flex-shrink-0 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-zinc-400 text-xs font-semibold text-white dark:bg-zinc-600">
-                              {getContactInitial(contact)}
-                            </div>
-                          )}
+                          <ContactAvatar
+                            contact={contact}
+                            className="h-8 w-8 text-xs"
+                            onRefresh={(profilePicUrl) =>
+                              handleAvatarRefresh(contact.id, profilePicUrl)
+                            }
+                          />
 
                           {/* Contact Info - More Compact */}
                           <div className="min-w-0 flex-1">

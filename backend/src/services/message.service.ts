@@ -169,6 +169,11 @@ export class MessageService {
             logMessageSkipped(userId, 'poll_update_message', waMessage, { messageId, remoteJid: normalizedRemoteJid, typeKey: 'pollUpdateMessage' });
             return;
           }
+          // Skip protocol/edit messages that weren't caught by getMessageEditInfo
+          if (typeKey === 'protocolMessage' || typeKey === 'editedMessage') {
+            logMessageSkipped(userId, 'protocol_message', waMessage, { messageId, remoteJid: normalizedRemoteJid, typeKey });
+            return;
+          }
       }
 
       const contact = await contactService.getOrCreateContact(userId, normalizedRemoteJid);
@@ -549,7 +554,8 @@ export class MessageService {
     const type = getContentType(content);
     if (!type) return 'TEXT';
 
-    if (type === 'reactionMessage') return 'OTHER'; // Explicitly mark reactions as OTHER to skip
+    if (type === 'reactionMessage') return 'OTHER';
+    if (type === 'protocolMessage' || type === 'editedMessage') return 'OTHER';
     if (type === 'imageMessage') return 'IMAGE';
     if (type === 'videoMessage' || type === 'ptvMessage') return 'VIDEO';
     if (type === 'audioMessage') return 'AUDIO';

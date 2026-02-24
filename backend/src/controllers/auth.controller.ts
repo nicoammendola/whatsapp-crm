@@ -7,7 +7,14 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { isEmailConfigured, sendPasswordResetEmail } from '../services/email.service';
 
 const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.FRONTEND_APP_URL || 'http://localhost:3000';
+
+function getFrontendUrl(): string {
+  const url = process.env.FRONTEND_URL || process.env.FRONTEND_APP_URL || 'http://localhost:3000';
+  if (process.env.NODE_ENV === 'production' && (url.includes('localhost') || !process.env.FRONTEND_URL)) {
+    throw new Error('FRONTEND_URL must be set to your app URL in production (e.g. https://your-app.vercel.app)');
+  }
+  return url.replace(/\/$/, '');
+}
 
 const MIN_PASSWORD_LENGTH = 6;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -171,7 +178,15 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
       },
     });
 
-    const resetLink = `${FRONTEND_URL.replace(/\/$/, '')}/reset-password?token=${token}`;
+    let resetLink: string;
+    try {
+      const baseUrl = getFrontendUrl();
+      resetLink = `${baseUrl}/reset-password?token=${token}`;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Server misconfiguration';
+      res.status(500).json({ error: msg });
+      return;
+    }
 
     const useEmail = isEmailConfigured();
     if (useEmail) {
@@ -191,7 +206,10 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
     res.status(200).json(payload);
   } catch (error) {
     console.error('forgotPassword error:', error);
-    res.status(500).json({ error: 'Failed to process request' });
+    const msg = error instanceof Error && error.message.includes('FRONTEND_URL')
+      ? error.message
+      : 'Failed to process request';
+    res.status(500).json({ error: msg });
   }
 }
 

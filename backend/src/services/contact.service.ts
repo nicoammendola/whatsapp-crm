@@ -117,20 +117,30 @@ export class ContactService {
       }
     }
 
-    // Validate enum values
+    // Validate enum values (null/empty means "clear" and is allowed)
     const validRelationshipTypes = ['family', 'close_friend', 'colleague', 'acquaintance', 'other'];
-    if (data.relationshipType && !validRelationshipTypes.includes(data.relationshipType)) {
-      throw new Error(`Invalid relationship type. Must be one of: ${validRelationshipTypes.join(', ')}`);
-    }
-
     const validContactFrequencies = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly'];
-    if (data.contactFrequency && !validContactFrequencies.includes(data.contactFrequency)) {
-      throw new Error(`Invalid contact frequency. Must be one of: ${validContactFrequencies.join(', ')}`);
+
+    const updateData = { ...data };
+
+    if (data.relationshipType !== undefined) {
+      const v = data.relationshipType?.trim() || null;
+      if (v !== null && !validRelationshipTypes.includes(v)) {
+        throw new Error(`Invalid relationship type. Must be one of: ${validRelationshipTypes.join(', ')}`);
+      }
+      updateData.relationshipType = v;
+    }
+    if (data.contactFrequency !== undefined) {
+      const v = data.contactFrequency?.trim() || null;
+      if (v !== null && !validContactFrequencies.includes(v)) {
+        throw new Error(`Invalid contact frequency. Must be one of: ${validContactFrequencies.join(', ')}`);
+      }
+      updateData.contactFrequency = v;
     }
 
     return prisma.contact.updateMany({
       where: { userId, id: contactId },
-      data,
+      data: updateData,
     });
   }
 

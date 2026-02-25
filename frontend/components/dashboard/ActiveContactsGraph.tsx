@@ -45,11 +45,10 @@ export default function ActiveContactsGraph({ data, loading }: ActiveContactsGra
     }
   };
 
-  // Tooltip: show Monthly, Weekly, Daily in that order with labels
   const TOOLTIP_ORDER: { dataKey: keyof ActiveContactsGraphDataPoint; label: string }[] = [
-    { dataKey: "monthly", label: "Monthly" },
-    { dataKey: "weekly", label: "Weekly" },
     { dataKey: "daily", label: "Daily" },
+    { dataKey: "weekly", label: "Weekly" },
+    { dataKey: "monthly", label: "Monthly" },
   ];
 
   const renderTooltip = (
@@ -116,12 +115,11 @@ export default function ActiveContactsGraph({ data, loading }: ActiveContactsGra
           wrapperStyle={{ paddingTop: "20px" }}
           iconType="line"
         />
-        {/* Order: Monthly, Weekly, Daily (legend shows in this order) */}
         <Line
           type="monotone"
-          dataKey="monthly"
-          name="Monthly"
-          stroke="#ef4444"
+          dataKey="daily"
+          name="Daily"
+          stroke="#3b82f6"
           strokeWidth={2}
           dot={{ r: 3 }}
           activeDot={{ r: 5 }}
@@ -137,9 +135,9 @@ export default function ActiveContactsGraph({ data, loading }: ActiveContactsGra
         />
         <Line
           type="monotone"
-          dataKey="daily"
-          name="Daily"
-          stroke="#3b82f6"
+          dataKey="monthly"
+          name="Monthly"
+          stroke="#ef4444"
           strokeWidth={2}
           dot={{ r: 3 }}
           activeDot={{ r: 5 }}

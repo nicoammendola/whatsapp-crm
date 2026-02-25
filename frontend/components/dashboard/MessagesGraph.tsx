@@ -69,7 +69,7 @@ export default function MessagesGraph({ data, loading }: MessagesGraphProps) {
             padding: "8px 12px",
           }}
           labelFormatter={(value) => formatDate(value as string)}
-          formatter={(value: number | undefined, name: string) => [value ?? 0, name]}
+          formatter={(value: number | undefined, name?: string) => [value ?? 0, name ?? ""]}
           wrapperStyle={{ zIndex: 1000 }}
         />
         <Legend
